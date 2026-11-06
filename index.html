@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Gem Mint Lab</title>
+<meta name="description" content="Scanner e pre-grading AI di carte Pokémon e TCG dal telefono, con standard PSA, Beckett e CGC.">
+<meta name="theme-color" content="#e6f6f3" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#052220" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Gem Mint Lab">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 30 38" aria-hidden="true"><rect x="1" y="1" width="28" height="36" rx="7" style="fill:var(--accent)"/><rect x="5" y="5" width="20" height="7" rx="3.5" style="fill:var(--on-accent);opacity:.9"/><rect x="5" y="15" width="20" height="18" rx="4" fill="none" style="stroke:var(--on-accent)" stroke-width="1.8"/><path d="M10 24.5l3 3 7-7" fill="none" style="stroke:var(--on-accent)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <div>
+        <div class="brand-name">Gem Mint Lab</div>
+        <div class="brand-sub">Pre-grading AI · TCG</div>
+      </div>
+    </div>
+    <span class="sync" id="sync">…</span>
+    <button class="icon-btn" id="btn-settings" aria-label="Impostazioni"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+  </div>
+</header>
+
+<main class="wrap">
+
+<!-- GRADE -->
+<section class="view" id="v-grade" data-view="grade">
+  <button class="scan-hero" id="btn-scan">
+    <span class="scan-hero-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><path d="M4 12h16"/></svg></span>
+    <span class="scan-hero-txt"><b>Scansiona una carta</b><span>Inquadra la carta: la rilevo, la raddrizzo e misuro la centratura da solo</span></span>
+  </button>
+  <div class="savings">
+    <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 10c0-3.3-3.1-6-7-6s-7 2.7-7 6c0 1.9 1 3.6 2.6 4.7L8 19h3v-2h2v2h3l.4-4.3C18 13.6 19 11.9 19 10z"/><path d="M12 7v3"/></svg>
+    <div>
+      <div class="lab">Costi di grading risparmiati</div>
+      <div class="big" id="saved-amt">$0</div>
+      <div class="lab" id="saved-sub">0 carte pre-valutate · stima $25 a carta</div>
+    </div>
+  </div>
+
+  <div class="panel" style="display:flex;flex-direction:column;gap:14px">
+    <div class="field-wrap" style="max-width:280px;align-self:center;width:100%">
+      <label for="accuracy">Precisione grading</label>
+      <select id="accuracy" class="field">
+        <option value="default">Standard · più veloce</option>
+        <option value="complex">Alta · più accurata</option>
+      </select>
+    </div>
+    <div class="slots">
+      <div class="slot" id="slot-back">
+        <label class="slot-face" id="face-back" for="in-back"></label>
+        <input type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/gif" class="sr" id="in-back">
+        <input type="file" accept="image/*" capture="environment" class="sr" id="cam-back">
+        <div class="slot-name">Retro</div>
+        <div class="slot-btns"><button class="btn sm" data-scan="back">Scansiona</button><label class="btn sm ghost" for="in-back">Galleria</label></div>
+      </div>
+      <div class="slot" id="slot-front">
+        <label class="slot-face" id="face-front" for="in-front"></label>
+        <input type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/gif" class="sr" id="in-front">
+        <input type="file" accept="image/*" capture="environment" class="sr" id="cam-front">
+        <div class="slot-name">Fronte</div>
+        <div class="slot-btns"><button class="btn sm" data-scan="front">Scansiona</button><label class="btn sm ghost" for="in-front">Galleria</label></div>
+      </div>
+    </div>
+    <p class="small muted" style="margin:0;text-align:center">Anche le foto dalla galleria vengono ritagliate e raddrizzate in automatico. Meglio su fondo scuro e uniforme, senza riflessi e senza bustina. Il retro è facoltativo ma migliora bordi, angoli e centratura.</p>
+    <div id="ai-state"></div>
+    <button class="btn primary block" id="btn-analyze" disabled>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 16v-4M12 16V8M16 16v-6"/></svg>
+      <span>Analizza con AI</span>
+    </button>
+    <button class="btn ghost block" id="btn-to-center">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 8V4h4M20 8V4h-4M4 16v4h4M20 16v4h-4"/><circle cx="12" cy="12" r="2.5"/></svg>
+      Misura la centratura a mano
+    </button>
+  </div>
+
+  <div id="result"></div>
+
+  <details class="panel manual" id="manual">
+    <summary><span>Valutazione manuale</span><span class="muted small">senza AI</span></summary>
+    <div class="sliders">
+      <div class="field-wrap"><label for="m-name">Nome carta</label><input id="m-name" class="field" placeholder="Es. Charizard 4/102"></div>
+      <div class="slider"><span>Centratura</span><input type="range" id="m-centering" min="1" max="10" step="0.5" value="9"><b class="mono" id="m-centering-v">9.0</b></div>
+      <div class="slider"><span>Angoli</span><input type="range" id="m-corners" min="1" max="10" step="0.5" value="9"><b class="mono" id="m-corners-v">9.0</b></div>
+      <div class="slider"><span>Bordi</span><input type="range" id="m-edges" min="1" max="10" step="0.5" value="9"><b class="mono" id="m-edges-v">9.0</b></div>
+      <div class="slider"><span>Superficie</span><input type="range" id="m-surface" min="1" max="10" step="0.5" value="9"><b class="mono" id="m-surface-v">9.0</b></div>
+      <button class="btn block" id="btn-manual">Crea slab con questi voti</button>
+    </div>
+  </details>
+</section>
+
+<!-- CENTERING -->
+<section class="view" id="v-centering" data-view="centering" hidden>
+  <div class="view-title"><h1>Bordi della carta</h1><button class="icon-btn" data-help="centering" aria-label="Come funziona"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.7M12 17h.01"/></svg></button></div>
+  <div class="step outer" id="c-step">
+    <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 8V4h4M20 8V4h-4M4 16v4h4M20 16v4h-4"/></svg></div>
+    <div><b id="c-step-t">Passo 1: bordo esterno</b><span class="small muted" id="c-step-d">Trascina le maniglie arancioni sui 4 angoli esterni della carta</span></div>
+  </div>
+  <div class="row">
+    <div class="seg" style="flex:1 1 200px" role="group" aria-label="Lato">
+      <button id="c-side-front" aria-pressed="true">Fronte</button>
+      <button id="c-side-back" aria-pressed="false">Retro</button>
+    </div>
+    <label class="btn sm" for="c-file" style="flex:0 0 auto">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></svg>Carica foto
+    </label>
+    <input type="file" accept="image/*" id="c-file" class="sr">
+  </div>
+  <div class="stage" id="c-stage">
+    <canvas id="c-canvas"></canvas>
+    <canvas id="c-loupe" class="loupe" width="256" height="256" hidden></canvas>
+    <div class="stage-empty" id="c-empty">
+      <div style="display:flex;flex-direction:column;gap:10px;align-items:center">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="5" y="3" width="14" height="18" rx="2"/><rect x="8" y="6" width="8" height="12" rx="1" stroke-dasharray="2 2"/></svg>
+        <span>Carica una foto o usa quella del grading. Misuri il rapporto tra i bordi stampati opposti.</span>
+      </div>
+    </div>
+  </div>
+  <div class="row">
+    <button class="btn tone-outer" id="c-reset"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/></svg>Reset</button>
+    <button class="btn tone-inner" id="c-switch"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 8h13l-3-3M20 16H7l3 3"/></svg><span id="c-switch-t">Passa all'interno</span></button>
+  </div>
+  <button class="btn tone-go block" id="c-analyze"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/></svg>Analizza centratura</button>
+  <div id="c-result"></div>
+</section>
+
+<!-- SLABS -->
+<section class="view" id="v-slabs" data-view="slabs" hidden>
+  <div class="view-title"><h1>I miei slab</h1><button class="icon-btn" id="btn-resync" aria-label="Aggiorna"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/></svg></button></div>
+  <div class="seg" role="group" aria-label="Elenco">
+    <button id="s-tab-history" aria-pressed="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l3 2"/></svg>Cronologia <span class="count" id="s-count-h">0/10</span></button>
+    <button id="s-tab-saved" aria-pressed="false"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M6 3h12v18l-6-4-6 4z"/></svg>Salvati <span class="count" id="s-count-s">0/100</span></button>
+  </div>
+  <div class="list" id="slab-list"></div>
+</section>
+
+<!-- PORTFOLIO -->
+<section class="view" id="v-portfolio" data-view="portfolio" hidden>
+  <div class="view-title"><h1>Portfolio</h1></div>
+  <div class="tabs-line" role="group" aria-label="Sezione">
+    <button id="p-tab-pf" aria-pressed="true">Portfolio</button>
+    <button id="p-tab-search" aria-pressed="false">Cerca</button>
+  </div>
+  <div id="p-main" class="view"></div>
+  <div id="p-search" class="view" hidden>
+    <div class="panel" style="display:flex;flex-direction:column;gap:12px">
+      <div class="filters">
+        <div class="field-wrap"><label for="ps-game">Gioco</label><select id="ps-game" class="field"></select></div>
+      </div>
+      <div class="field-wrap"><label for="ps-q">Carta o prodotto</label><input id="ps-q" class="field" placeholder="Es. Umbreon VMAX Evolving Skies"></div>
+      <button class="btn primary block" id="ps-go"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>Cerca e stima prezzo</button>
+      <div id="ps-results" class="list"></div>
+    </div>
+    <details class="panel manual">
+      <summary><span>Aggiungi a mano</span><span class="muted small">prezzo tuo</span></summary>
+      <div class="sliders">
+        <div class="field-wrap"><label for="pm-name">Nome</label><input id="pm-name" class="field" placeholder="Es. Pikachu 58/102"></div>
+        <div class="field-wrap"><label for="pm-set">Set</label><input id="pm-set" class="field" placeholder="Es. Base Set"></div>
+        <div class="row">
+          <div class="field-wrap"><label for="pm-price">Prezzo $</label><input id="pm-price" class="field mono" inputmode="decimal" placeholder="12.50"></div>
+          <div class="field-wrap"><label for="pm-var">Variante</label><select id="pm-var" class="field"><option>Normal</option><option>Holo</option><option>Reverse Holo</option><option>Sealed</option><option>Graded</option></select></div>
+        </div>
+        <button class="btn block" id="pm-add">Aggiungi al portfolio</button>
+      </div>
+    </details>
+  </div>
+</section>
+
+<!-- MARKET -->
+<section class="view" id="v-market" data-view="market" hidden>
+  <div class="view-title"><h1 id="m-title">Da comprare</h1><button class="icon-btn" data-help="market" aria-label="Come leggere i punteggi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.7M12 17h.01"/></svg></button></div>
+  <div class="seg" role="group" aria-label="Strumento">
+    <button id="m-tab-worth" aria-pressed="true">Opportunità</button>
+    <button id="m-tab-flip" aria-pressed="false">Grade Flip</button>
+  </div>
+  <div id="m-worth" class="view">
+    <div class="filters">
+      <div class="field-wrap"><label for="w-game">Gioco</label><select id="w-game" class="field"></select></div>
+      <div class="field-wrap"><label for="w-price">Prezzo</label><select id="w-price" class="field"><option>$0 – $5</option><option>$5 – $20</option><option>$20 – $50</option><option>$50 – $200</option><option>$200+</option></select></div>
+    </div>
+    <button class="btn primary block" id="w-go">Trova opportunità con AI</button>
+    <div id="w-state"></div>
+    <div class="list" id="w-list"></div>
+  </div>
+  <div id="m-flip" class="view" hidden>
+    <div class="filters">
+      <div class="field-wrap"><label for="f-era">Era</label><select id="f-era" class="field"><option>Moderna</option><option>Vintage</option><option>Tutte</option></select></div>
+      <div class="field-wrap"><label for="f-raw">Raw</label><select id="f-raw" class="field"><option>$0 – $5</option><option selected>$5 – $50</option><option>$50 – $200</option></select></div>
+      <div class="field-wrap"><label for="f-game">Categoria</label><select id="f-game" class="field"></select></div>
+    </div>
+    <div class="field-wrap" style="max-width:220px"><label for="f-fee">Costo grading stimato $</label><input id="f-fee" class="field mono" inputmode="decimal" value="25"></div>
+    <button class="btn primary block" id="f-go">Trova grade flip con AI</button>
+    <div id="f-state"></div>
+    <div class="list" id="f-list"></div>
+  </div>
+</section>
+</main>
+
+<nav class="tabbar" aria-label="Sezioni">
+  <div class="wrap">
+    <button data-go="grade"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7V4h3M17 4h3v3M20 17v3h-3M7 20H4v-3"/><rect x="8" y="7" width="8" height="10" rx="1"/></svg>Grading</button>
+    <button data-go="centering"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><rect x="4" y="3" width="16" height="18" rx="2"/><rect x="8" y="7" width="8" height="10" rx="1"/><path d="M12 3v4M12 17v4M4 12h4M16 12h4"/></svg>Centratura</button>
+    <button data-go="slabs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><rect x="5" y="2.5" width="14" height="19" rx="2"/><path d="M8 7h8"/><rect x="8" y="10" width="8" height="8" rx="1"/></svg>Slab</button>
+    <button data-go="portfolio"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l5-5 4 3 8-8"/><path d="M15 7h5v5"/></svg>Portfolio</button>
+    <button data-go="market"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.6 5.6 6 .7-4.5 4.1 1.2 6L12 16.5 6.7 19.4l1.2-6L3.4 9.3l6-.7z"/></svg>Mercato</button>
+  </div>
+</nav>
+
+<div class="modal" id="modal" hidden><div class="modal-box" id="modal-box" role="dialog" aria-modal="true"></div></div>
+<div class="toast" id="toast" hidden></div>
+
+<script src="scanner.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
