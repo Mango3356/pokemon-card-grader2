@@ -1,6 +1,6 @@
 # Gem Mint Lab
 
-Scanner e pre-grading AI di carte Pokémon e altri TCG, pensato per il telefono.
+Scanner e pre-grading AI di carte Pokémon e altri TCG, pensato per il telefono. Stile cartoon minimale verde e giallo.
 
 **Apri l'app:** https://mango3356.github.io/pokemon-card-grader2/
 

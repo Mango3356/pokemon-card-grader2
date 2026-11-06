@@ -126,7 +126,7 @@ function parseJSONLoose(t) {
 }
 async function geminiCall(prompt, opts = {}) {
   if (!settings.gkey) throw Object.assign(new Error("no_key"), { code: "no_key" });
-  const model = (settings.gmodel || "gemini-flash-latest").trim();
+  const model = (opts.modelOverride || geminiWorking || settings.gmodel || "gemini-flash-latest").trim();
   const parts = [];
   const imgs = opts.images ? [].concat(opts.images) : [];
   for (const im of imgs) parts.push({ inline_data: { mime_type: im.type && /^image\/(jpeg|png|webp|heic|heif)$/.test(im.type) ? im.type : "image/jpeg", data: await blobToB64(im) } });
@@ -145,12 +145,17 @@ async function geminiCall(prompt, opts = {}) {
   let body = null; try { body = await res.json(); } catch (e) {}
   if (!res.ok) {
     const msg = body?.error?.message || "", st = body?.error?.status || "";
+    const det = body?.error?.details || [];
+    const rd = det.find(d => /RetryInfo/.test(d["@type"] || ""))?.retryDelay;
+    const retryMs = rd ? Math.ceil(parseFloat(rd) * 1000) : 0;
+    const perDay = JSON.stringify(det).match(/PerDay/i);
+    const quota = res.status === 429 || st === "RESOURCE_EXHAUSTED";
     const code = /API_KEY_INVALID|API key not valid/i.test(msg) || res.status === 401 ? "bad_key"
-      : res.status === 429 || st === "RESOURCE_EXHAUSTED" ? "g_quota"
+      : quota ? (!perDay && (!retryMs || retryMs <= 35000) ? "g_quota_rpm" : "g_quota")
       : res.status === 404 ? "model" : res.status === 403 ? "forbidden"
       : (res.status === 503 || res.status === 500) ? "overloaded"
       : /location is not supported|region/i.test(msg) ? "g_region" : "http_" + res.status;
-    throw Object.assign(new Error(code), { code, detail: msg.slice(0, 160) });
+    throw Object.assign(new Error(code), { code, detail: msg.slice(0, 160), retryMs, model });
   }
   const cand = body?.candidates?.[0];
   const text = (cand?.content?.parts || []).map(p => p.text || "").join("");
@@ -160,7 +165,63 @@ async function geminiCall(prompt, opts = {}) {
   }
   return text;
 }
-async function aiCall(prompt, opts = {}) { return settings.provider === "gemini" ? geminiCall(prompt, opts) : claudeCall(prompt, opts); }
+/* Retries + Gemini model fallback. Free Gemini models are often busy (503) or hit
+ * a per-minute quota (429): wait and retry, then try other Flash models the key can use. */
+let geminiWorking = "", geminiList = null;
+const RETRY_CODES = ["overloaded", "network", "g_quota_rpm", "rate_limited", "empty"];
+const FALLBACK_CODES = ["overloaded", "model", "g_quota", "g_quota_rpm", "empty"];
+function sleep(ms, signal) {
+  return new Promise((res, rej) => {
+    const t = setTimeout(res, ms);
+    signal?.addEventListener("abort", () => { clearTimeout(t); rej(Object.assign(new Error("cancelled"), { code: "cancelled" })); }, { once: true });
+  });
+}
+async function geminiAlternates(exclude) {
+  if (!geminiList) {
+    try {
+      const r = await fetch("https://generativelanguage.googleapis.com/v1beta/models?pageSize=200", { headers: { "x-goog-api-key": settings.gkey } });
+      const j = await r.json();
+      geminiList = (j.models || [])
+        .filter(m => (m.supportedGenerationMethods || []).includes("generateContent"))
+        .map(m => String(m.name || "").replace(/^models\//, ""))
+        .filter(n => /gemini/i.test(n) && /flash/i.test(n) && !/image|tts|live|embed|audio|native|robot|computer|exp|preview/i.test(n));
+      const ver = n => parseFloat((n.match(/(\d+(?:\.\d+)?)/) || [0, 0])[1]);
+      geminiList.sort((a, b) => (/latest/.test(b) - /latest/.test(a)) || (ver(b) - ver(a)) || (/lite/.test(a) - /lite/.test(b)));
+    } catch (e) { geminiList = []; }
+    if (!geminiList.length) geminiList = ["gemini-flash-latest", "gemini-flash-lite-latest"];
+  }
+  return geminiList.filter(n => !exclude.includes(n));
+}
+async function aiCall(prompt, opts = {}) {
+  const gem = settings.provider === "gemini";
+  const tried = [];
+  let model = gem ? (geminiWorking || settings.gmodel || "gemini-flash-latest") : null;
+  let lastErr = null;
+  for (let round = 0; round < 4; round++) {
+    const waits = [2000, 5000];
+    for (let a = 0; a <= waits.length; a++) {
+      try {
+        const t = gem ? await geminiCall(prompt, { ...opts, modelOverride: model }) : await claudeCall(prompt, opts);
+        if (gem && model !== (settings.gmodel || "gemini-flash-latest")) { if (geminiWorking !== model) toast(`Uso ${model}: l'altro modello era occupato`); geminiWorking = model; }
+        return t;
+      } catch (e) {
+        lastErr = e;
+        if (e.code === "cancelled" || !RETRY_CODES.includes(e.code) || a === waits.length) break;
+        if (e.code === "g_quota_rpm" && (e.retryMs || 0) > 20000) break;   // long wait: switch model instead
+        toast(`${providerName()} occupato, riprovo (${a + 1}/${waits.length})…`);
+        await sleep(Math.max(waits[a], Math.min(e.retryMs || 0, 20000)), opts.signal);
+      }
+    }
+    if (!gem || !FALLBACK_CODES.includes(lastErr?.code)) break;
+    tried.push(model);
+    const alt = await geminiAlternates(tried);
+    if (!alt.length) break;
+    model = alt[0];
+    toast(`Provo un altro modello: ${model}`);
+  }
+  if (gem && tried.length > 1 && lastErr) lastErr.triedAll = true;
+  throw lastErr;
+}
 async function claudeCall(prompt, opts = {}) {
   if (!settings.key) throw Object.assign(new Error("no_key"), { code: "no_key" });
   const model = opts.modelTier === "complex" ? MODELS.complex : opts.modelTier === "quick" ? MODELS.quick : (settings.model || "claude-sonnet-5-5");
@@ -198,11 +259,12 @@ function aiErr(e) {
     case "forbidden": return "La chiave API non ha i permessi per questa richiesta.";
     case "billing": return "Credito API esaurito: ricarica su console.anthropic.com › Billing.";
     case "rate_limited": return "Troppe richieste in poco tempo. Aspetta un minuto e riprova.";
-    case "g_quota": return "Hai raggiunto il limite gratuito di Gemini (al minuto o al giorno). Aspetta un po' e riprova, oppure passa a Claude in Impostazioni.";
+    case "g_quota_rpm": return "Hai fatto troppe richieste a Gemini in un minuto (limite gratuito). Aspetta 1 minuto e riprova.";
+    case "g_quota": return `Hai finito le richieste gratuite di oggi${e.triedAll ? " su tutti i modelli Gemini disponibili" : ""}. Si azzerano ogni giorno; intanto puoi passare a Claude in Impostazioni.`;
     case "g_region": return "Gemini non è disponibile nel tuo paese con questa chiave.";
     case "g_blocked": return "Gemini ha bloccato la risposta per i suoi filtri. Riprova con un'altra foto.";
     case "empty": return "L'AI non ha restituito una risposta. Riprova.";
-    case "overloaded": return "I server di Claude sono sovraccarichi in questo momento. Riprova tra poco.";
+    case "overloaded": return `I server di ${providerName()} sono pieni in questo momento${e.triedAll ? ": ho riprovato più volte e con altri modelli" : ""}. Riprova tra qualche minuto${settings.provider === "gemini" ? ", oppure passa a Claude in Impostazioni" : ""}.`;
     case "model": return "Modello non trovato o non disponibile per la tua chiave. Controlla il nome del modello in Impostazioni.";
     case "network": return "Nessuna connessione a internet, oppure la richiesta è stata bloccata.";
     case "invalid_json": return "La risposta dell'AI non era leggibile. Premi di nuovo per riprovare.";
@@ -502,7 +564,7 @@ function drawCent() {
   const g = stageGeom(); const dpr = window.devicePixelRatio || 1;
   cv.width = Math.round(g.W * dpr); cv.height = Math.round(g.H * dpr); cv.style.height = g.H + "px";
   const x = cv.getContext("2d"); x.setTransform(dpr, 0, 0, dpr, 0, 0);
-  x.fillStyle = "#0b2b2a"; x.fillRect(0, 0, g.W, g.H);
+  x.fillStyle = "#173a1d"; x.fillRect(0, 0, g.W, g.H);
   x.drawImage(cent.img, g.ox, g.oy, g.dw, g.dh);
   const P = p => [g.ox + p[0] * g.s, g.oy + p[1] * g.s];
   const css = getComputedStyle(document.documentElement);
@@ -520,7 +582,7 @@ function drawLoupe(pt) {
   L.fillStyle = "#000"; L.fillRect(0, 0, S, S);
   L.imageSmoothingEnabled = false;
   L.drawImage(cent.img, pt[0] - src / 2, pt[1] - src / 2, src, src, 0, 0, S, S);
-  const col = cent.mode === "outer" ? "#f2602e" : "#0fb37e";
+  const col = cent.mode === "outer" ? "#ff8a3d" : "#2fae5c";
   L.strokeStyle = col; L.lineWidth = 2;
   L.beginPath(); L.moveTo(S / 2, 20); L.lineTo(S / 2, S - 20); L.moveTo(20, S / 2); L.lineTo(S - 20, S / 2); L.stroke();
   loupe.style.borderColor = col;
@@ -662,24 +724,24 @@ function renderSlabs() {
 async function slabCanvas(s) {
   try { await document.fonts.ready; } catch (e) {}
   const W = 900, H = 1380, c = document.createElement("canvas"); c.width = W; c.height = H; const x = c.getContext("2d");
-  x.fillStyle = "#e6f6f3"; x.fillRect(0, 0, W, H);
+  x.fillStyle = "#f3f9dc"; x.fillRect(0, 0, W, H);
   const rr = (X, Y, w, h, r) => { x.beginPath(); x.roundRect(X, Y, w, h, r); };
-  const g = x.createLinearGradient(0, 0, W, H); g.addColorStop(0, "#f5fcfb"); g.addColorStop(1, "#c3dcd8");
+  const g = x.createLinearGradient(0, 0, W, H); g.addColorStop(0, "#fdfff4"); g.addColorStop(1, "#d7e8b4");
   rr(50, 40, W - 100, H - 80, 34); x.fillStyle = g; x.fill();
-  rr(80, 70, W - 160, 270, 18); x.fillStyle = "#0a2a29"; x.fill();
-  x.fillStyle = "#e6fffb"; x.font = "800 38px 'Bricolage Grotesque', Arial, sans-serif";
+  rr(80, 70, W - 160, 270, 18); x.fillStyle = "#1f3d22"; x.fill();
+  x.fillStyle = "#fffbe6"; x.font = "700 38px Fredoka, Arial, sans-serif";
   let nm = (s.name + (s.number ? " " + s.number : "")).toUpperCase(); while (x.measureText(nm).width > 470 && nm.length > 4) nm = nm.slice(0, -2) + "…";
   x.fillText(nm, 110, 130);
-  x.fillStyle = "#5fe3d3"; x.fillRect(110, 155, 5, 150);
-  x.font = "500 24px 'JetBrains Mono', monospace";
+  x.fillStyle = "#ffd23f"; x.fillRect(110, 155, 5, 150);
+  x.font = "800 24px Nunito, Arial, sans-serif";
   [["CENTERING", s.centering], ["SURFACE", s.surface], ["EDGES", s.edges], ["CORNERS", s.corners]].forEach(([k, v], i) => {
-    x.fillStyle = "#5fe3d3"; x.fillText(k, 130, 185 + i * 36); x.fillStyle = "#fff"; x.fillText(f1(v), 470, 185 + i * 36);
+    x.fillStyle = "#ffd23f"; x.fillText(k, 130, 185 + i * 36); x.fillStyle = "#fff"; x.fillText(f1(v), 470, 185 + i * 36);
   });
-  x.strokeStyle = "#1c4a46"; x.lineWidth = 2; x.beginPath(); x.moveTo(570, 95); x.lineTo(570, 315); x.stroke();
-  x.textAlign = "center"; x.fillStyle = "#5fe3d3"; x.font = "600 22px 'JetBrains Mono', monospace"; x.fillText("GEM MINT LAB", 695, 130);
-  x.fillStyle = "#fff"; x.font = "800 110px 'Bricolage Grotesque', Arial, sans-serif"; x.fillText(f1(s.final), 695, 250);
-  x.fillStyle = "#5fe3d3"; x.font = "600 22px 'JetBrains Mono', monospace"; x.fillText(s.label, 695, 295); x.textAlign = "left";
-  rr(80, 370, W - 160, H - 470, 18); x.fillStyle = "#08201e"; x.fill();
+  x.strokeStyle = "#335c36"; x.lineWidth = 2; x.beginPath(); x.moveTo(570, 95); x.lineTo(570, 315); x.stroke();
+  x.textAlign = "center"; x.fillStyle = "#ffd23f"; x.font = "800 22px Nunito, Arial, sans-serif"; x.fillText("GEM MINT LAB", 695, 130);
+  x.fillStyle = "#fff"; x.font = "700 110px Fredoka, Arial, sans-serif"; x.fillText(f1(s.final), 695, 250);
+  x.fillStyle = "#ffd23f"; x.font = "800 22px Nunito, Arial, sans-serif"; x.fillText(s.label, 695, 295); x.textAlign = "left";
+  rr(80, 370, W - 160, H - 470, 18); x.fillStyle = "#173a1d"; x.fill();
   if (s.front) {
     try {
       const im = await loadImg(s.front); const bw = W - 220, bh = H - 530;
@@ -1057,9 +1119,9 @@ document.addEventListener("click", async e => {
     $('[data-set="prov-gemini"]').setAttribute("aria-pressed", g); $('[data-set="prov-claude"]').setAttribute("aria-pressed", !g);
     $("#set-gemini").hidden = !g; $("#set-claude").hidden = g; msg.innerHTML = ""; return;
   }
-  if (a === "save") { readForm(); saveSettings(settings); renderSync(); closeModal(); toast(activeKey() ? `Impostazioni salvate · AI: ${providerName()}` : "Salvato · manca la chiave API"); }
+  if (a === "save") { readForm(); geminiWorking = ""; geminiList = null; saveSettings(settings); renderSync(); closeModal(); toast(activeKey() ? `Impostazioni salvate · AI: ${providerName()}` : "Salvato · manca la chiave API"); }
   else if (a === "test") {
-    readForm(); msg.innerHTML = `<div class="notice info"><span class="spin"></span><span>Provo la chiave…</span></div>`;
+    readForm(); geminiWorking = ""; geminiList = null; msg.innerHTML = `<div class="notice info"><span class="spin"></span><span>Provo la chiave…</span></div>`;
     try { await aiCall("Rispondi solo con: OK", { modelTier: "quick", maxTokens: 16 }); msg.innerHTML = `<div class="notice info" style="color:var(--good)">Chiave ${providerName()} funzionante. Ricorda di premere Salva.</div>`; }
     catch (err) { msg.innerHTML = `<div class="notice bad">${ICON.warn}<span>${esc(aiErr(err))}</span></div>`; }
   }

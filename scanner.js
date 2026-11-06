@@ -394,20 +394,20 @@ function drawOverlay(m, gd, quadVideo, state) {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, m.W, m.H);
   // dim outside the guide
-  ctx.fillStyle = "rgba(2,22,20,.45)";
+  ctx.fillStyle = "rgba(15,35,18,.5)";
   ctx.beginPath(); ctx.rect(0, 0, m.W, m.H); ctx.roundRect(gd.x, gd.y, gd.w, gd.h, 14); ctx.fill("evenodd");
   ctx.lineWidth = 3; ctx.setLineDash(state === "found" ? [] : [10, 8]);
-  ctx.strokeStyle = state === "found" ? "#2fe0cb" : "rgba(255,255,255,.85)";
+  ctx.strokeStyle = state === "found" ? "#ffd23f" : "rgba(255,255,255,.85)";
   ctx.beginPath(); ctx.roundRect(gd.x, gd.y, gd.w, gd.h, 14); ctx.stroke(); ctx.setLineDash([]);
   if (quadVideo) {
     const P = p => [m.ox + p[0] * m.s, m.oy + p[1] * m.s];
     ctx.beginPath(); quadVideo.forEach((p, i) => { const [x, y] = P(p); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.closePath();
-    ctx.fillStyle = "rgba(47,224,203,.18)"; ctx.fill(); ctx.strokeStyle = "#2fe0cb"; ctx.lineWidth = 3; ctx.stroke();
+    ctx.fillStyle = "rgba(255,210,63,.22)"; ctx.fill(); ctx.strokeStyle = "#ffd23f"; ctx.lineWidth = 3; ctx.stroke();
     quadVideo.forEach(p => { const [x, y] = P(p); ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI * 2); ctx.fillStyle = "#fff"; ctx.fill(); });
     if (state === "found" && autoOn) {
       const f = Math.min(1, stableCount / STABLE_FRAMES);
       ctx.beginPath(); ctx.arc(m.W / 2, gd.y + gd.h + 34, 16, -Math.PI / 2, -Math.PI / 2 + f * Math.PI * 2);
-      ctx.strokeStyle = "#2fe0cb"; ctx.lineWidth = 4; ctx.stroke();
+      ctx.strokeStyle = "#ffd23f"; ctx.lineWidth = 4; ctx.stroke();
     }
   }
 }
@@ -492,7 +492,7 @@ function showReview(r) {
   const src = r.card || r.original;
   cv.width = src.width; cv.height = src.height; cv.getContext("2d").drawImage(src, 0, 0);
   if (r.card && r.inner) {
-    const x = cv.getContext("2d"); x.strokeStyle = r.inner.reliable ? "#0fb37e" : "#f0c04f"; x.lineWidth = Math.max(3, cv.width / 260); x.setLineDash([12, 8]);
+    const x = cv.getContext("2d"); x.strokeStyle = r.inner.reliable ? "#2fae5c" : "#ff8a3d"; x.lineWidth = Math.max(3, cv.width / 260); x.setLineDash([12, 8]);
     x.beginPath(); r.inner.inner.forEach((p, i) => i ? x.lineTo(p[0], p[1]) : x.moveTo(p[0], p[1])); x.closePath(); x.stroke();
   }
   const chips = [];
