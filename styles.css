@@ -124,15 +124,15 @@ select.field,input.field{width:100%;background:var(--bg);border:1px solid var(--
 .savings > svg{color:var(--accent);flex:none;background:color-mix(in srgb,var(--accent) 14%,transparent);border-radius:99px;padding:8px;width:50px;height:50px}
 .savings .big{font-family:var(--f-display);font-size:30px;font-weight:800;letter-spacing:-.02em;color:var(--accent-2);line-height:1.1}
 .savings .lab{font-size:12.5px;color:var(--muted);letter-spacing:.02em}
-.slots{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.slot{position:relative;display:flex;flex-direction:column;gap:8px;cursor:pointer}
+.slots{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.slot{position:relative;display:flex;flex-direction:column;gap:8px;cursor:pointer;min-width:0}
 .slot-face{position:relative;aspect-ratio:63/88;max-width:100%;border-radius:18px;border:2px dashed color-mix(in srgb,var(--accent) 55%,var(--line));background:radial-gradient(circle at 50% 40%,color-mix(in srgb,var(--accent) 12%,var(--panel)),var(--panel-2));display:grid;place-items:center;overflow:hidden;text-align:center;padding:10px}
 .slot-face img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .slot.has .slot-face{border-style:solid;border-color:var(--line)}
 .slot-face .ph{display:flex;flex-direction:column;align-items:center;gap:6px;color:var(--muted);font-size:13px}
 .slot-face .ph svg{width:28px;height:28px;color:var(--accent-2)}
-.slot-btns{display:grid;grid-template-columns:1fr 1fr;gap:6px}
-.slot-btns .btn{padding:6px 4px;font-size:12.5px;min-height:36px}
+.slot-btns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+.slot-btns .btn{padding:6px 2px;font-size:12.5px;min-height:38px;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .slot.drag .slot-face{border-color:var(--accent);border-style:solid}
 .house em{display:block;font-style:normal;font-family:var(--f-mono);font-size:10px;letter-spacing:.08em;color:var(--accent-2);margin-top:2px}
 .house small{display:block;font-size:11px;color:var(--muted);margin-top:4px;line-height:1.3}
@@ -495,3 +495,8 @@ select.field,input.field,textarea.field{background:var(--glass);border:1px solid
 .brand-mark{width:38px;height:38px;flex:none;filter:drop-shadow(0 4px 10px rgba(38,176,141,.35))}
 .brand-name{font-size:21px;letter-spacing:-.03em}
 .brand-name span{color:var(--accent)}
+
+/* never let anything push the page wider than the phone */
+html,body{overflow-x:clip;max-width:100%}
+main.wrap,.view,.panel{min-width:0}
+.row > .btn{min-width:0}

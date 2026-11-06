@@ -310,11 +310,30 @@ function detectInner(card) {
     else res[side] = rowRes;
   }
   if (!res.L || !res.R || !res.T || !res.B) return null;
-  const L = res.L.px * OUT_W, R = res.R.px * OUT_W, T = res.T.px * OUT_H, B = res.B.px * OUT_H;
-  const conf = Math.min(res.L.conf, res.R.conf, res.T.conf, res.B.conf);
+  let L = res.L.px * OUT_W, R = res.R.px * OUT_W, T = res.T.px * OUT_H, B = res.B.px * OUT_H;
+  let conf = Math.min(res.L.conf, res.R.conf, res.T.conf, res.B.conf), corrected = false;
+  // Sanity check: a printed border is about as wide on every side in millimetres, so
+  // left+right and top+bottom must be close even on a badly off-centre card. If one side
+  // is far bigger than the rest, it locked onto artwork (e.g. a thin silver border that
+  // the crop shaved off): rebuild it from the other axis and flag the result as uncertain.
+  const mm = { L: L / OUT_W * 63, R: R / OUT_W * 63, T: T / OUT_H * 88, B: B / OUT_H * 88 };
+  const H = mm.L + mm.R, V = mm.T + mm.B;
+  if (Math.max(H, V) / Math.max(0.1, Math.min(H, V)) > 1.45) {
+    const sides = Object.entries(mm).sort((a, b) => b[1] - a[1]);
+    const [k, v] = sides[0], others = sides.slice(1).map(x => x[1]).sort((a, b) => a - b);
+    if (v > 1.8 * others[1]) {
+      const opp = { L: "R", R: "L", T: "B", B: "T" }[k];
+      const target = (k === "L" || k === "R") ? V : H;
+      const fixed = Math.max(0.25, Math.min(target * 0.95, target - mm[opp]));
+      if (k === "L") L = fixed / 63 * OUT_W; else if (k === "R") R = fixed / 63 * OUT_W;
+      else if (k === "T") T = fixed / 88 * OUT_H; else B = fixed / 88 * OUT_H;
+      corrected = true;
+    }
+    conf = Math.min(conf, 0.4);
+  }
   const inner = [[L, T], [OUT_W - R, T], [OUT_W - R, OUT_H - B], [L, OUT_H - B]];
   const lr = L / (L + R) * 100, tb = T / (T + B) * 100;
-  return { inner, reliable: conf >= 0.45, conf, lr, tb };
+  return { inner, reliable: conf >= 0.45, conf, lr, tb, corrected };
 }
 
 function quality(card) {
@@ -338,6 +357,8 @@ function quality(card) {
 
 /* ---------------- UI ---------------- */
 let root = null, video = null, overlay = null, stream = null, track = null, raf = 0, lastTick = 0;
+const SCALES = [0.8, 0.65, 0.52];
+let scaleIdx = 0, missFrames = 0;
 let resolveOpen = null, side = "front", opts = {}, prevQuad = null, stableCount = 0, autoOn = true, lastDet = null, frozen = false, torchOn = false;
 const anCanvas = document.createElement("canvas");
 const anCtx = anCanvas.getContext("2d", { willReadFrequently: true });
@@ -466,7 +487,18 @@ function loop(ts) {
   if (anCanvas.width !== aw) { anCanvas.width = aw; anCanvas.height = ah; }
   anCtx.drawImage(video, 0, 0, aw, ah);
   const gA = { x: gv.x * sc, y: gv.y * sc, w: gv.w * sc, h: gv.h * sc };
-  const det = detectQuad(anCtx.getImageData(0, 0, aw, ah), gA);
+  // Try the guide size first; if the card is held farther away, also try smaller
+  // regions around the same centre (one extra scale per frame to keep it light).
+  const frame = anCtx.getImageData(0, 0, aw, ah);
+  let det = detectQuad(frame, gA);
+  if (!det) {
+    // stay on the scale that last worked; move to the next one only after a miss
+    const f = SCALES[scaleIdx];
+    const gs = { x: gA.x + gA.w * (1 - f) / 2, y: gA.y + gA.h * (1 - f) / 2, w: gA.w * f, h: gA.h * f };
+    det = detectQuad(frame, gs);
+    if (!det) scaleIdx = (scaleIdx + 1) % SCALES.length;
+  }
+  if (!det) missFrames++; else missFrames = 0;
   if (det) {
     const qv = det.quad.map(p => [p[0] / sc, p[1] / sc]);
     if (prevQuad) {
@@ -482,7 +514,8 @@ function loop(ts) {
     if (lastDet && ts - lastDet.t < 400) { drawOverlay(m, gd, lastDet.quad, "found"); return; }
     prevQuad = null; stableCount = 0; lastDet = null;
     drawOverlay(m, gd, null, "search");
-    status(side === "back" ? "Inquadra il retro nel riquadro · meglio un fondo chiaro o di legno, non blu" : "Inquadra la carta nel riquadro, su un fondo uniforme");
+    status(missFrames > 25 ? "Avvicina la carta: deve riempire quasi tutto il riquadro"
+      : side === "back" ? "Inquadra il retro nel riquadro · meglio un fondo chiaro o di legno, non blu" : "Inquadra la carta nel riquadro, su un fondo uniforme");
   }
 }
 
@@ -542,7 +575,8 @@ function showReview(r) {
   const chips = [];
   if (r.card) chips.push(r.detected ? `<span class="sc-chip ok">Bordi rilevati e raddrizzati</span>` : `<span class="sc-chip warn">Bordi non trovati: ritagliata sul riquadro</span>`);
   else chips.push(`<span class="sc-chip warn">Carta non trovata nella foto: userò la foto intera</span>`);
-  if (r.inner) chips.push(r.inner.reliable ? `<span class="sc-chip ok">Centratura ${ratio(r.inner.lr)} · ${ratio(r.inner.tb)}</span>` : `<span class="sc-chip warn">Centratura incerta: controllala nello strumento</span>`);
+  if (r.inner) chips.push(r.inner.reliable ? `<span class="sc-chip ok">Centratura ${ratio(r.inner.lr)} · ${ratio(r.inner.tb)}</span>`
+    : `<span class="sc-chip warn">Centratura incerta${r.inner.corrected ? ` (stimata ${ratio(r.inner.lr)} · ${ratio(r.inner.tb)})` : ""}: controllala nello strumento</span>`);
   else if (r.card) chips.push(`<span class="sc-chip warn">Bordo stampato non riconosciuto (es. full art)</span>`);
   if (r.q && r.q.glare > 0.015) chips.push(`<span class="sc-chip warn">Riflesso sulla carta: inclina un po' il telefono</span>`);
   if (r.q && r.q.sharp < 25) chips.push(`<span class="sc-chip warn">Foto poco nitida</span>`);
@@ -582,7 +616,8 @@ async function onClick(e) {
 
 function finish(val) {
   stopCamera();
-  if (root) root.hidden = true;
+  if (root) { root.hidden = true; root.querySelector(".sc-review").hidden = true; }
+  pending = null;
   const r = resolveOpen; resolveOpen = null; frozen = false;
   document.documentElement.classList.remove("sc-open");
   r?.(val);
@@ -608,7 +643,7 @@ function showError(err) {
 
 function open(s, o = {}) {
   if (!root) build();
-  side = s; opts = o; frozen = false; prevQuad = null; stableCount = 0; lastDet = null;
+  side = s; opts = o; frozen = false; prevQuad = null; stableCount = 0; lastDet = null; missFrames = 0;
   root.hidden = false; root.querySelector(".sc-review").hidden = true; root.querySelector(".sc-error").hidden = true;
   root.querySelector("#sc-side").textContent = s === "front" ? "FRONTE" : "RETRO";
   document.documentElement.classList.add("sc-open");

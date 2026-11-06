@@ -14,6 +14,9 @@ Scanner e pre-grading AI di carte Pokémon e altri TCG, pensato per il telefono.
 - **Mercato**: "Da comprare" (liquidità, crescita, domanda, community, rischio, ROI stimato) e **Grade Flip** (raw contro PSA 10, BGS 10, CGC 10, con valore atteso).
 - Funziona anche offline per scansione e centratura. Si installa sulla schermata Home come un'app.
 
+## Anteprima sul PC
+Apri https://mango3356.github.io/pokemon-card-grader2/iphone.html: l'app gira dentro un iPhone simulato e la puoi scorrere e usare con il mouse.
+
 ## Come usarla sul telefono
 
 1. Apri il link sopra con **Safari** (iPhone) o **Chrome** (Android).

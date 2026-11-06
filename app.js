@@ -1265,5 +1265,11 @@ window.addEventListener("hashchange", () => go(fromHash(), false));
 go(fromHash(), false);
 renderAll();
 Store.init();
-if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("./sw.js").catch(() => {});
+if ("serviceWorker" in navigator && location.protocol === "https:") {
+  // when a new version takes over, reload once so the phone never keeps showing the old app
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => { if (hadController && !reloaded) { reloaded = true; location.reload(); } });
+  navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" }).then(r => r.update?.()).catch(() => {});
+}
 })();
