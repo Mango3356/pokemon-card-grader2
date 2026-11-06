@@ -1194,6 +1194,22 @@ document.addEventListener("paste", e => {
   if (f) { e.preventDefault(); intakeFile(f, state.front ? "back" : "front"); }
 });
 $("#btn-settings").addEventListener("click", openSettings);
+const darkMQ = matchMedia("(prefers-color-scheme: dark)");
+const effectiveTheme = () => document.documentElement.dataset.theme || (darkMQ.matches ? "dark" : "light");
+function syncThemeUI() {
+  const t = effectiveTheme();
+  $("#btn-theme").setAttribute("aria-label", t === "dark" ? "Passa al tema chiaro" : "Passa al tema scuro");
+  $$('meta[name="theme-color"]').forEach(m => { m.removeAttribute("media"); m.setAttribute("content", t === "dark" ? "#13261a" : "#f3f9dc"); });
+  if (state.view === "centering") drawCent();
+}
+$("#btn-theme").addEventListener("click", () => {
+  const next = effectiveTheme() === "dark" ? "light" : "dark";
+  document.documentElement.dataset.theme = next;
+  try { localStorage.setItem("gml-theme", next); } catch (e) {}
+  syncThemeUI(); toast(next === "dark" ? "Tema scuro" : "Tema chiaro");
+});
+darkMQ.addEventListener?.("change", syncThemeUI);
+syncThemeUI();
 $("#btn-scan").addEventListener("click", () => startScan("front", true));
 document.addEventListener("click", e => { const b = e.target.closest("[data-scan]"); if (b) startScan(b.dataset.scan, false); });
 $("#btn-analyze").addEventListener("click", () => { if (state.busy) state.ctl?.abort(); else analyze(); });

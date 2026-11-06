@@ -473,3 +473,12 @@ select.field,input.field,textarea.field{border:var(--bw) solid var(--ink-line);b
 @media (prefers-reduced-motion:reduce){.btn,.icon-btn{transition:none}}
 .panel > .field-wrap{flex:0 0 auto}
 .toast{width:max-content;max-width:min(360px, calc(100vw - 32px));text-align:center;border-radius:20px}
+
+/* theme toggle: show the icon of the theme you will switch TO */
+#btn-theme .ic-sun{display:none}
+:root[data-theme="dark"] #btn-theme .ic-sun{display:block}
+:root[data-theme="dark"] #btn-theme .ic-moon{display:none}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) #btn-theme .ic-sun{display:block}:root:not([data-theme="light"]) #btn-theme .ic-moon{display:none}}
+#btn-theme svg{width:19px;height:19px}
+.top .wrap{gap:8px}
+@media (max-width:370px){.brand-sub{display:none}.sync{padding:4px 7px;font-size:10.5px}}
