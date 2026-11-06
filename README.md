@@ -8,9 +8,9 @@ Scanner e pre-grading AI di carte Pokémon e altri TCG, pensato per il telefono.
 
 - **Scanner dal vivo**: inquadri la carta con la fotocamera, l'app trova i bordi, scatta da sola quando tieni fermo il telefono, raddrizza la prospettiva e ritaglia la carta.
 - **Centratura automatica**: misura i bordi stampati sul fronte e sul retro e calcola i rapporti sinistra/destra e alto/basso. Puoi correggerla a mano con le maniglie e la lente.
-- **Grading AI** (Gemini gratis o Claude): subgradi di centratura, angoli, bordi e superficie con i criteri ufficiali Beckett, più il voto previsto per **PSA, Beckett e CGC** in base alle loro soglie di centratura.
-- **Slab digitali**: cronologia (ultimi 10) e salvati (fino a 100), con ingrandimento e condivisione come immagine.
-- **Portfolio**: valore totale con grafico, quantità, prezzi modificabili, ricerca carte con stima prezzo.
+- **Grading AI** (Gemini gratis o Claude), con risposte deterministiche e modalità Alta a 3 analisi con mediana: subgradi di centratura, angoli, bordi e superficie con i criteri ufficiali Beckett, più il voto previsto per **PSA, Beckett e CGC** in base alle loro soglie di centratura.
+- **Wallet**: ogni carta scansionata e valutata finisce qui in automatico come slab digitale. Se scansioni più volte la stessa carta vedi il voto consolidato. Da qui la aggiungi al portfolio.
+- **Portfolio**: per ogni carta prezzo raw e prezzo PSA al voto previsto da GradScan, valore totale raw e "con i voti PSA", grafico, quantità, prezzi modificabili, ricerca carte.
 - **Mercato**: "Da comprare" (liquidità, crescita, domanda, community, rischio, ROI stimato) e **Grade Flip** (raw contro PSA 10, BGS 10, CGC 10, con valore atteso).
 - Funziona anche offline per scansione e centratura. Si installa sulla schermata Home come un'app.
 

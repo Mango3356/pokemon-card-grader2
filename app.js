@@ -11,9 +11,10 @@ const clamp = (n, a, b) => Math.min(b, Math.max(a, n));
 const uid = p => p + "_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const GAMES = ["Pokémon", "One Piece", "Magic: The Gathering", "Yu-Gi-Oh!", "Disney Lorcana"];
 const FEE = 25;
-const HIST_MAX = 10, SAVED_MAX = 100;
+const WALLET_MAX = 300;
 
 const ICON = {
+  check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg>',
   edges: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="5" width="14" height="14" rx="1"/></svg>',
   corners: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>',
   surface: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 12l8-8M4 20L20 4M12 20l8-8"/></svg>',
@@ -136,7 +137,7 @@ async function geminiCall(prompt, opts = {}) {
     res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
       method: "POST", signal: opts.signal,
       headers: { "content-type": "application/json", "x-goog-api-key": settings.gkey },
-      body: JSON.stringify({ contents: [{ role: "user", parts }], generationConfig: { maxOutputTokens: opts.maxTokens ? Math.max(opts.maxTokens, 64) : 8192, temperature: 0.2, ...(opts.json ? { responseMimeType: "application/json" } : {}) } })
+      body: JSON.stringify({ contents: [{ role: "user", parts }], generationConfig: { maxOutputTokens: opts.maxTokens ? Math.max(opts.maxTokens, 64) : 8192, temperature: 0, ...(opts.json ? { responseMimeType: "application/json" } : {}) } })
     });
   } catch (e) {
     if (e?.name === "AbortError") throw Object.assign(new Error("cancelled"), { code: "cancelled" });
@@ -234,7 +235,7 @@ async function claudeCall(prompt, opts = {}) {
     res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST", signal: opts.signal,
       headers: { "content-type": "application/json", "x-api-key": settings.key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
-      body: JSON.stringify({ model, max_tokens: opts.maxTokens || 4096, messages: [{ role: "user", content }] })
+      body: JSON.stringify({ model, max_tokens: opts.maxTokens || 4096, temperature: 0, messages: [{ role: "user", content }] })
     });
   } catch (e) {
     if (e?.name === "AbortError") throw Object.assign(new Error("cancelled"), { code: "cancelled" });
@@ -323,7 +324,12 @@ async function startScan(side, offerBack) {
   const res = await window.GMLScanner.open(side, { offerBack });
   if (!res) return;
   await useScan(res, side);
-  if (res.next) startScan("back", false);
+  if (res.next) return startScan("back", false);
+  // scan finished: grade it straight away and file it in the Wallet
+  if (settings.autoAnalyze !== false && state.front) {
+    if (activeKey()) analyze();
+    else toast("Scansione pronta. Aggiungi una chiave AI (ingranaggio) per il voto automatico");
+  }
 }
 async function intakeFile(file, side) {
   if (!window.GMLScanner) { pickImage(file, side); return; }
@@ -428,7 +434,7 @@ Ti invio ${state.back ? "2 foto: la PRIMA è il FRONTE, la SECONDA è il RETRO" 
 ${centNote ? "Misura di centratura fatta dall'utente con uno strumento: " + centNote + ". Usala come dato affidabile per la centratura.\n" : ""}
 ${RUBRIC}
 
-Regole: subgradi da 1 a 10 a passi di 0.5, applicando i criteri Beckett qui sopra in modo severo. Misura la centratura dei bordi stampati: per ogni asse indica la percentuale del bordo più largo (50 = perfetta, 55 = 55/45). Se la foto è sfocata, riflessa o tagliata, abbassa "confidence" e dillo nella nota. Se non è una carta collezionabile, metti "is_card": false.
+Regole: subgradi da 1 a 10 a passi di 0.5, applicando i criteri Beckett qui sopra in modo severo e sempre uguale: a parità di difetti visibili dai lo stesso voto; se sei indeciso tra due voti scegli il più basso; non abbassare un subgrado per difetti che non vedi chiaramente nella foto. Misura la centratura dei bordi stampati: per ogni asse indica la percentuale del bordo più largo (50 = perfetta, 55 = 55/45). Se la foto è sfocata, riflessa o tagliata, abbassa "confidence" e dillo nella nota. Se non è una carta collezionabile, metti "is_card": false.
 "note" in italiano, 3-5 frasi: punti di forza, difetti specifici con posizione (es. angolo in basso a sinistra del retro), e quale criterio di PSA, Beckett e CGC limita il voto.
 Rispondi SOLO con JSON in questa forma:
 {"is_card":true,"name":"Charizard","set":"Base Set","number":"4/102","game":"Pokémon","type":"fire","centering":9.5,"corners":8.0,"edges":8.5,"surface":9.0,"centering_front":{"lr":55,"tb":52},"centering_back":{"lr":60,"tb":55},"confidence":"alta|media|bassa","defects":["whitening angolo in basso a sinistra (retro)"],"note":"..."}
@@ -446,9 +452,19 @@ async function analyze() {
   const mb = state.back && cent.results.back?.img === state.back.img ? cent.results.back : null;
   const cm = [mf && `fronte ${mf.lrTxt} sinistra/destra, ${mf.tbTxt} alto/basso`, mb && `retro ${mb.lrTxt} sinistra/destra, ${mb.tbTxt} alto/basso`].filter(Boolean).join("; ");
   try {
-    const r = await ai.s.json(GRADE_PROMPT(cm), { images: imgs, signal: state.ctl.signal, modelTier: $("#accuracy").value });
-    if (!r || r.is_card === false) { state.aiError = "Non riconosco una carta collezionabile nella foto. Inquadra solo la carta, dritta e a fuoco."; return; }
-    const sub = {}; for (const k of ["centering", "corners", "edges", "surface"]) sub[k] = clamp(half(r[k] ?? 8), 1, 10);
+    // "Alta": 3 independent readings, median of each subgrade (removes one-off swings)
+    const runs = $("#accuracy").value === "complex" ? 3 : 1;
+    const reads = []; let lastErr = null;
+    for (let i = 0; i < runs; i++) {
+      state.aiStep = runs > 1 ? `Analisi ${i + 1} di ${runs}` : ""; renderGrade();
+      try { const one = await ai.s.json(GRADE_PROMPT(cm), { images: imgs, signal: state.ctl.signal, modelTier: $("#accuracy").value }); if (one) reads.push(one); }
+      catch (e) { if (e.code === "cancelled") throw e; lastErr = e; }
+    }
+    if (!reads.length) throw lastErr || Object.assign(new Error("empty"), { code: "empty" });
+    const r = reads[0];
+    if (!r || reads.every(x => x.is_card === false)) { state.aiError = "Non riconosco una carta collezionabile nella foto. Inquadra solo la carta, dritta e a fuoco."; return; }
+    const med = arr => { const v = arr.filter(n => isFinite(n)).sort((a, b) => a - b); return v.length ? v[(v.length - 1) >> 1] : NaN; };
+    const sub = {}; for (const k of ["centering", "corners", "edges", "surface"]) { const m = med(reads.map(x => Number(x[k]))); sub[k] = clamp(half(isFinite(m) ? m : 8), 1, 10); }
     const c = { fLR: normW(r.centering_front?.lr), fTB: normW(r.centering_front?.tb), bLR: state.back ? normW(r.centering_back?.lr) : null, bTB: state.back ? normW(r.centering_back?.tb) : null, measured: false };
     if (mf) { c.fLR = mf.lrW; c.fTB = mf.tbW; c.measured = true; }
     if (mb) { c.bLR = mb.lrW; c.bTB = mb.tbW; c.measured = true; }
@@ -462,14 +478,17 @@ async function analyze() {
       defects: Array.isArray(r.defects) ? r.defects.slice(0, 8).map(String) : [], note: String(r.note || ""),
       front: state.front.thumb, back: state.back?.thumb || ""
     };
+    slab.reads = reads.length;
     const id = uid("slab");
-    Store.put(id, slab); pruneHistory();
+    Store.put(id, slab); pruneWallet();
+    updateConsensus(id);
     bumpCounter();
     state.result = id;
+    toast("Carta aggiunta al Wallet");
   } catch (e) {
     state.aiError = aiErr(e);
   } finally {
-    state.busy = false; state.ctl = null; renderAll();
+    state.busy = false; state.ctl = null; state.aiStep = ""; renderAll();
     if (state.result) $("#result").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
   }
 }
@@ -477,9 +496,20 @@ function bumpCounter() {
   const m = Store.get("meta") || { kind: "meta", graded: 0 };
   Store.put("meta", { ...m, kind: "meta", graded: (m.graded || 0) + 1 });
 }
-function pruneHistory() {
-  const hist = Store.all("slab").filter(s => !s.saved).sort((a, b) => b.t - a.t);
-  hist.slice(HIST_MAX).forEach(s => Store.del(s.id));
+function pruneWallet() {
+  Store.all("slab").sort((a, b) => b.t - a.t).slice(WALLET_MAX).forEach(s => Store.del(s.id));
+}
+/* Same card scanned more than once → a consolidated grade (median of the finals). */
+const cardKey = s => [s.name, s.number, s.set].map(v => String(v || "").toLowerCase().replace(/[^a-z0-9]+/g, "")).join("|");
+function sameCard(s) { const k = cardKey(s); return Store.all("slab").filter(x => !x.manual && cardKey(x) === k); }
+function updateConsensus(id) {
+  const s = Store.get(id); if (!s || s.manual) return;
+  const group = sameCard(s);
+  const fin = group.map(x => Number(x.final)).sort((a, b) => a - b);
+  const subs = {};
+  for (const k of ["centering", "corners", "edges", "surface"]) { const v = group.map(x => Number(x[k])).sort((a, b) => a - b); subs[k] = v[(v.length - 1) >> 1]; }
+  const cons = { n: group.length, final: finalScore(subs), min: fin[0], max: fin[fin.length - 1] };
+  group.forEach(x => Store.put(x.id, { ...strip(x), consensus: cons }));
 }
 function manualSlab() {
   const sub = {}; for (const k of ["centering", "corners", "edges", "surface"]) sub[k] = Number($("#m-" + k).value);
@@ -487,7 +517,7 @@ function manualSlab() {
   const slab = { kind: "slab", t: Date.now(), saved: false, manual: true, name: $("#m-name").value.trim() || "Carta senza nome", set: "", number: "", game: "", type: "normal",
     ...sub, final: fin, label: gradeLabel(fin), cent: null, ratio: "", confidence: "", defects: [], note: "Valutazione inserita a mano.",
     front: state.front?.thumb || "", back: state.back?.thumb || "" };
-  const id = uid("slab"); Store.put(id, slab); pruneHistory(); state.result = id; renderAll(); toast("Slab creato");
+  const id = uid("slab"); Store.put(id, slab); pruneWallet(); state.result = id; renderAll(); toast("Carta aggiunta al Wallet");
   $("#result").scrollIntoView({ block: "start" });
 }
 
@@ -510,7 +540,7 @@ function renderGrade() {
     ? `<span class="spin" aria-hidden="true"></span><span>Annulla analisi</span>`
     : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 16v-4M12 16V8M16 16v-6"/></svg><span>Analizza con AI</span>`;
   $("#ai-state").innerHTML = state.busy
-    ? `<div class="notice info"><span class="spin" aria-hidden="true"></span><span>${providerName()} sta esaminando centratura, angoli, bordi e superficie. Ci vogliono di solito 15–40 secondi.</span></div>`
+    ? `<div class="notice info"><span class="spin" aria-hidden="true"></span><span>${state.aiStep ? `<b>${state.aiStep}</b> · ` : ""}${providerName()} sta esaminando centratura, angoli, bordi e superficie. Ci vogliono di solito 15–40 secondi${state.aiStep ? " per analisi" : ""}.</span></div>`
     : state.aiError ? `<div class="notice bad">${ICON.warn}<span>${esc(state.aiError)}</span></div>` : "";
   const r = state.result && Store.get(state.result);
   $("#result").innerHTML = r ? resultHTML({ id: state.result, ...r }) : "";
@@ -531,11 +561,12 @@ function resultHTML(r) {
       <div class="final-info"><div class="eyebrow">Voto finale · scala Beckett</div><div class="final-label">${esc(r.label)}</div>${r.confidence ? `<div class="conf-pill"><i></i>Affidabilità ${esc(r.confidence)}</div>` : ""}</div>
     </div>
     <div class="subs">${tiles}</div>
+    ${r.consensus && r.consensus.n > 1 ? `<div class="notice info cons">${ICON.info}<span>Hai scansionato questa carta <b>${r.consensus.n} volte</b> (voti da ${f1(r.consensus.min)} a ${f1(r.consensus.max)}). Voto consolidato: <b>${f1(r.consensus.final)}</b> · ${esc(gradeLabel(r.consensus.final))}</span></div>` : ""}${r.reads > 1 ? `<div class="small muted">Mediana di ${r.reads} analisi indipendenti.</div>` : ""}
     ${companyHTML(r)}
     ${centLine(r) ? `<div class="small muted">${centLine(r)}</div>` : ""}
     <div class="note"><h3>${ICON.spark}${r.manual ? "Nota" : "Nota AI"}</h3><p>${esc(r.note)}</p>${r.defects?.length ? `<ul class="defects">${r.defects.map(d => `<li>${esc(d)}</li>`).join("")}</ul>` : ""}</div>
     <div class="row">
-      <button class="btn sm" data-act="open-slab" data-id="${r.id}">Apri slab</button>
+      <button class="btn sm" data-act="open-slab" data-id="${r.id}">Apri nel Wallet</button>
       <button class="btn sm" data-act="to-center">Misura centratura</button>
       <button class="btn sm" data-act="slab-to-pf" data-id="${r.id}">Aggiungi al portfolio</button>
     </div>
@@ -698,34 +729,35 @@ function slabHTML(s) {
     <div class="slab-window">${s.front ? `<img src="${s.front}" alt="">` : artHTML({ name: s.name, number: s.number, type: s.type })}</div>
   </div>`;
 }
+function holdingForSlab(id) { return holdings().find(h => h.slabId === id); }
 function renderSlabs() {
   const all = Store.all("slab").sort((a, b) => b.t - a.t);
-  const hist = all.filter(s => !s.saved), saved = all.filter(s => s.saved);
-  $("#s-count-h").textContent = `${hist.length}/${HIST_MAX}`;
-  $("#s-count-s").textContent = `${saved.length}/${SAVED_MAX}`;
-  $("#s-tab-history").setAttribute("aria-pressed", state.slabTab === "history");
-  $("#s-tab-saved").setAttribute("aria-pressed", state.slabTab === "saved");
-  const list = state.slabTab === "history" ? hist : saved;
   const box = $("#slab-list");
-  if (!Store.ready) { box.innerHTML = `<div class="panel empty"><span class="spin"></span><span class="muted">Carico i tuoi slab…</span></div>`; return; }
-  if (!list.length) {
-    box.innerHTML = `<div class="panel empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="5" y="2.5" width="14" height="19" rx="2"/><path d="M8 7h8"/><rect x="8" y="10" width="8" height="8" rx="1"/></svg>
-      <b>${state.slabTab === "history" ? "Nessuno slab recente" : "Nessuno slab salvato"}</b>
-      <span class="muted small">${state.slabTab === "history" ? "Ogni carta che valuti compare qui come slab digitale. La cronologia tiene le ultime 10." : "Premi Salva su uno slab della cronologia per tenerlo (fino a 100)."}</span>
-      ${state.slabTab === "history" ? `<button class="btn primary" data-go="grade">Valuta una carta</button>` : ""}</div>`;
+  const sum = $("#wallet-sum");
+  if (!Store.ready) { sum.innerHTML = ""; box.innerHTML = `<div class="panel empty"><span class="spin"></span><span class="muted">Carico il Wallet…</span></div>`; return; }
+  const inPf = all.filter(s => holdingForSlab(s.id)).length;
+  sum.innerHTML = all.length ? `<span><b>${all.length}</b> ${all.length === 1 ? "carta" : "carte"}</span><span class="muted">·</span><span><b>${inPf}</b> nel portfolio</span>` : "";
+  if (!all.length) {
+    box.innerHTML = `<div class="panel empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h18v12H3z"/><path d="M3 7l3-3h12l3 3"/><path d="M16 13h2"/></svg>
+      <b>Il Wallet è vuoto</b>
+      <span class="muted small">Ogni carta che scansioni e valuti finisce qui in automatico, come slab digitale.</span>
+      <button class="btn primary" data-go="grade">Scansiona una carta</button></div>`;
     return;
   }
-  box.innerHTML = list.map(s => `<div class="panel slab-item">
+  box.innerHTML = all.map(s => {
+    const h = holdingForSlab(s.id), G = companyGrades(s);
+    return `<div class="panel slab-item">
     <div class="slab-actions">
-      <button class="btn sm save-btn" data-act="save" data-id="${s.id}" aria-pressed="${!!s.saved}">${ICON.bookmark}${s.saved ? "Salvato" : "Salva"}</button>
+      ${h ? `<button class="btn sm in-pf" data-act="to-portfolio-view">${ICON.check}Nel portfolio</button>` : `<button class="btn sm primary" data-act="wallet-to-pf" data-id="${s.id}" ${state.pfBusy === s.id ? "disabled" : ""}>${state.pfBusy === s.id ? '<span class="spin"></span>Stimo i prezzi…' : "+ Portfolio"}</button>`}
       <span class="spacer"></span>
       <button class="act zoom" data-act="zoom" data-id="${s.id}" aria-label="Ingrandisci">${ICON.zoom}</button>
       <button class="act share" data-act="share" data-id="${s.id}" aria-label="Condividi">${ICON.share}</button>
       ${state.confirmDel === s.id ? `<button class="act del confirm" data-act="del" data-id="${s.id}">Elimina?</button>` : `<button class="act del" data-act="del" data-id="${s.id}" aria-label="Elimina">${ICON.trash}</button>`}
     </div>
     ${slabHTML(s)}
+    <div class="wallet-meta"><span>PSA <b>${G.psa.g}</b></span><span>BGS <b>${f1(G.bgs.g)}</b></span><span>CGC <b>${f1(G.cgc.g)}</b></span>${s.consensus && s.consensus.n > 1 ? `<span class="cons-chip">${s.consensus.n} scansioni · ${f1(s.consensus.final)}</span>` : ""}</div>
     <div class="small muted mono">${new Date(s.t).toLocaleString("it-IT", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}${s.manual ? " · manuale" : ""}</div>
-  </div>`).join("");
+  </div>`; }).join("");
 }
 
 async function slabCanvas(s) {
@@ -796,6 +828,7 @@ function artHTML(c) {
 const RANGES = { "7D": 7, "1M": 30, "3M": 91, "6M": 182, "Max": Infinity };
 function holdings() { return Store.all("holding").sort((a, b) => (a.t || 0) - (b.t || 0)); }
 function totalValue() { return holdings().reduce((a, h) => a + (Number(h.price) || 0) * (h.qty || 0), 0); }
+function gradedTotal() { return holdings().reduce((a, h) => a + (h.graded && Number(h.graded.price) > 0 ? Number(h.graded.price) : Number(h.price) || 0) * (h.qty || 0), 0); }
 function recordSnapshot() {
   const v = Math.round(totalValue() * 100) / 100;
   const h = Store.get("phist") || { kind: "phist", pts: [] };
@@ -806,10 +839,36 @@ function recordSnapshot() {
   Store.put("phist", { kind: "phist", pts: pts.slice(-500), example: h.example && holdings().some(x => x.example) });
 }
 function addHolding(o) {
-  const ex = holdings().find(h => h.name === o.name && (h.set || "") === (o.set || "") && (h.variant || "") === (o.variant || ""));
+  const gk = o.graded ? o.graded.company + o.graded.grade : "";
+  const ex = !o.slabId && holdings().find(h => !h.slabId && h.name === o.name && (h.set || "") === (o.set || "") && (h.variant || "") === (o.variant || "") && (h.graded ? h.graded.company + h.graded.grade : "") === gk);
   if (ex) Store.put(ex.id, { ...strip(ex), qty: (ex.qty || 0) + 1 });
-  else Store.put(uid("hold"), { kind: "holding", t: Date.now(), name: o.name, set: o.set || "", number: o.number || "", game: o.game || "Pokémon", variant: o.variant || "Normal", type: o.type || "normal", price: Number(o.price) || 0, qty: 1, ...(o.example ? { example: true } : {}) });
+  else Store.put(uid("hold"), { kind: "holding", t: Date.now(), name: o.name, set: o.set || "", number: o.number || "", game: o.game || "Pokémon", variant: o.variant || "Normal", type: o.type || "normal", price: Number(o.price) || 0, qty: 1,
+    ...(o.graded ? { graded: { company: o.graded.company, grade: o.graded.grade, price: Number(o.graded.price) || 0 } } : {}),
+    ...(o.slabId ? { slabId: o.slabId } : {}), ...(o.img ? { img: o.img } : {}), ...(o.example ? { example: true } : {}) });
   recordSnapshot(); renderAll(); toast("Aggiunto al portfolio");
+}
+/* Wallet → portfolio: raw price and the PSA price at the grade GradScan predicts. */
+async function walletToPortfolio(id) {
+  const s = Store.get(id); if (!s || holdingForSlab(id)) return;
+  const psa = companyGrades(s).psa.g;
+  const base = { name: s.name, set: s.set, number: s.number, game: s.game, type: s.type, variant: "Raw", slabId: id, img: s.front || "" };
+  const ai = await getAI();
+  if (!ai) { addHolding({ ...base, price: 0, graded: { company: "PSA", grade: psa, price: 0 } }); toast("Aggiunto: inserisci tu i prezzi (manca la chiave AI)"); return; }
+  state.pfBusy = id; renderSlabs();
+  try {
+    const r = await ai.s.json(`Sei un esperto del mercato delle carte collezionabili. Carta: ${s.game || "Pokémon"} — ${s.name} ${s.number || ""} (${s.set || "set sconosciuto"}).
+Stima con le tue conoscenze di mercato più recenti (non hai prezzi in tempo reale), in USD, i prezzi medi di vendita:
+- "raw": carta non gradata in condizioni Near Mint;
+- "psa": la stessa carta gradata PSA ${psa};
+- "psa10": gradata PSA 10.
+Se non conosci bene la carta, stima con prudenza e metti "confidence":"bassa".
+Rispondi solo con JSON: {"raw":12.5,"psa":45,"psa10":180,"confidence":"alta|media|bassa"}`, { modelTier: "default", maxTokens: 400 });
+    addHolding({ ...base, price: Number(r?.raw) || 0, graded: { company: "PSA", grade: psa, price: Number(r?.psa) || 0 } });
+  } catch (e) {
+    addHolding({ ...base, price: 0, graded: { company: "PSA", grade: psa, price: 0 } });
+    toast("Aggiunto senza prezzi: " + aiErr(e));
+  }
+  state.pfBusy = null; renderAll();
 }
 const strip = o => { const { id, ...r } = o; return r; };
 function loadExamplePortfolio() {
@@ -871,16 +930,18 @@ function renderPortfolio() {
   const anyEx = hs.some(h => h.example);
   const statusNote = Store.mode === "memory" ? `<div class="notice warn">${ICON.warn}<span>Il browser non permette di salvare: i dati si perdono alla chiusura. Esci dalla navigazione privata.</span></div>` : "";
   const cards = hs.length ? hs.map(h => `<div class="hold">
-      ${artHTML(h)}
+      ${h.img ? `<img class="hold-img" src="${h.img}" alt="">` : artHTML(h)}
       <div class="hold-info"><div class="nm">${esc(h.name)}${h.number ? ` <span class="muted mono small">${esc(h.number)}</span>` : ""}</div>
         <div class="meta">${esc(h.game)}${h.set ? " · " + esc(h.set) : ""}</div>
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${state.editPrice === h.id ? `<input class="price-edit" id="price-${h.id}" inputmode="decimal" value="${Number(h.price).toFixed(2)}" aria-label="Prezzo in dollari"><button class="btn sm" data-act="price-ok" data-id="${h.id}">OK</button>` : `<button class="price-pill" data-act="price-edit" data-id="${h.id}" aria-label="Modifica prezzo">${fmt$(h.price)}</button>`}<span class="small muted">${esc(h.variant)}</span>${h.example ? '<span class="tag-ex">esempio</span>' : ""}</div></div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${state.editPrice === h.id ? `<input class="price-edit" id="price-${h.id}" inputmode="decimal" value="${Number(h.price).toFixed(2)}" aria-label="Prezzo in dollari"><button class="btn sm" data-act="price-ok" data-id="${h.id}">OK</button>` : `<button class="price-pill" data-act="price-edit" data-id="${h.id}" aria-label="Modifica prezzo">${fmt$(h.price)}</button>`}<span class="small muted">${h.graded ? "Raw" : esc(h.variant)}</span>${h.example ? '<span class="tag-ex">esempio</span>' : ""}</div>
+        ${h.graded ? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${state.editGPrice === h.id ? `<input class="price-edit" id="gprice-${h.id}" inputmode="decimal" value="${Number(h.graded.price).toFixed(2)}" aria-label="Prezzo gradata in dollari"><button class="btn sm" data-act="gprice-ok" data-id="${h.id}">OK</button>` : `<button class="price-pill graded" data-act="gprice-edit" data-id="${h.id}" aria-label="Modifica prezzo ${esc(h.graded.company)} ${h.graded.grade}">${fmt$(h.graded.price)}</button>`}<span class="small grade-tag">${esc(h.graded.company)} ${h.graded.grade} previsto</span>${h.price > 0 && h.graded.price > 0 ? `<span class="small ${h.graded.price >= h.price ? "up" : "down"}">${h.graded.price >= h.price ? "+" : "−"}${fmt$0(Math.abs(h.graded.price - h.price))}</span>` : ""}</div>` : ""}</div>
       <div class="stepper">${state.confirmHold === h.id ? `<button data-act="hold-del" data-id="${h.id}" style="width:auto;padding:0 10px;font-size:13px;color:var(--bad)">Rimuovi</button>` : `<button data-act="qty-" data-id="${h.id}" aria-label="Meno">−</button><span>${h.qty}</span><button data-act="qty+" data-id="${h.id}" aria-label="Più">+</button>`}</div>
     </div>`).join("")
-    : `<div class="panel empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 17l5-5 4 3 8-8"/><path d="M15 7h5v5"/></svg><b>Il portfolio è vuoto</b><span class="muted small">Aggiungi carte da Cerca, da uno slab o dalle opportunità di mercato.</span><div class="row" style="width:100%"><button class="btn primary" data-act="to-search">Cerca una carta</button><button class="btn" data-act="load-ex">Carica esempio</button></div></div>`;
+    : `<div class="panel empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 17l5-5 4 3 8-8"/><path d="M15 7h5v5"/></svg><b>Il portfolio è vuoto</b><span class="muted small">Aggiungi le carte dal Wallet (pulsante + Portfolio), da Cerca o dalle opportunità di mercato.</span><div class="row" style="width:100%"><button class="btn primary" data-act="to-search">Cerca una carta</button><button class="btn" data-act="load-ex">Carica esempio</button></div></div>`;
   box.innerHTML = `<div class="pf-card">
       <div class="hdr-row"><span class="t">Portfolio</span>${anyEx ? '<span class="tag-ex">dati di esempio</span>' : ""}</div>
       <div class="v">${fmt$(total)}</div>
+      ${hs.some(h => h.graded) ? `<div class="graded-total"><span>Valore con i voti PSA previsti</span><b>${fmt$(gradedTotal())}</b></div>` : ""}
       <div class="delta ${ch.delta >= 0 ? "up" : "down"}">${ch.delta >= 0 ? "▲" : "▼"} ${fmt$(Math.abs(ch.delta))} (${ch.pct >= 0 ? "+" : ""}${ch.pct.toFixed(1)}%) · ${state.range}</div>
       <div class="chart" style="margin-top:10px">${ch.svg}</div>
       <div class="ranges">${Object.keys(RANGES).map(k => `<button data-range="${k}" aria-pressed="${state.range === k}">${k}</button>`).join("")}</div>
@@ -889,7 +950,7 @@ function renderPortfolio() {
     <div class="hdr-row"><h2>Le mie carte</h2><span class="muted small mono">${hs.reduce((a, h) => a + h.qty, 0)} carte</span></div>
     ${hs.length ? `<div class="row"><button class="btn sm" data-act="refresh-prices" ${state.refreshBusy ? "disabled" : ""}>${state.refreshBusy ? '<span class="spin"></span>Aggiorno…' : "Aggiorna prezzi con AI"}</button>${anyEx ? `<button class="btn sm tone-bad" data-act="clear-ex">Rimuovi esempi</button>` : ""}</div>` : ""}
     <div class="list">${cards}</div>
-    ${hs.length ? `<p class="small muted" style="margin:0">Tocca un prezzo per correggerlo. I prezzi stimati dall'AI non sono quotazioni in tempo reale: verifica su TCGplayer, Cardmarket o eBay venduti.</p>` : ""}`;
+    ${hs.length ? `<p class="small muted" style="margin:0">Tocca un prezzo per correggerlo. Il prezzo PSA è quello della carta gradata con il voto previsto da GradScan. I prezzi stimati dall'AI non sono quotazioni in tempo reale: verifica su TCGplayer, Cardmarket o eBay venduti.</p>` : ""}`;
 }
 function renderSearch() {
   const b = $("#ps-results");
@@ -915,10 +976,16 @@ async function refreshPrices() {
   const ai = await getAI(); if (!ai) { toast("Aggiungi la chiave API in Impostazioni, oppure correggi i prezzi a mano"); return; }
   state.refreshBusy = true; renderPortfolio();
   try {
-    const list = hs.map((h, i) => `${i}. ${h.game} — ${h.name} ${h.number} (${h.set}, ${h.variant})`).join("\n");
-    const r = await ai.s.json(`Stima il prezzo di mercato medio in USD (raw Near Mint o sigillato) per ciascun elemento, con le tue conoscenze di mercato più recenti:\n${list}\nRispondi solo con un array JSON [{"i":0,"price":12.5}].`, { modelTier: "default" });
+    const list = hs.map((h, i) => `${i}. ${h.game} — ${h.name} ${h.number} (${h.set}, ${h.graded ? "raw" : h.variant})${h.graded ? ` + prezzo gradata ${h.graded.company} ${h.graded.grade}` : ""}`).join("\n");
+    const r = await ai.s.json(`Stima il prezzo di mercato medio in USD per ciascun elemento, con le tue conoscenze di mercato più recenti: "price" = raw Near Mint (o sigillato); "graded" = solo dove è chiesto il prezzo della versione gradata a quel voto.\n${list}\nRispondi solo con un array JSON [{"i":0,"price":12.5,"graded":40}].`, { modelTier: "default" });
     let n = 0;
-    (Array.isArray(r) ? r : []).forEach(x => { const h = hs[x.i]; const p = Number(x.price); if (h && p > 0) { Store.put(h.id, { ...strip(h), price: Math.round(p * 100) / 100 }); n++; } });
+    (Array.isArray(r) ? r : []).forEach(x => {
+      const h = hs[x.i]; const p = Number(x.price), g = Number(x.graded); if (!h) return;
+      const upd = { ...strip(h) };
+      if (p > 0) upd.price = Math.round(p * 100) / 100;
+      if (h.graded && g > 0) upd.graded = { ...h.graded, price: Math.round(g * 100) / 100 };
+      if (p > 0 || g > 0) { Store.put(h.id, upd); n++; }
+    });
     recordSnapshot(); toast(`${n} prezzi aggiornati`);
   } catch (e) { toast(aiErr(e)); }
   state.refreshBusy = false; renderAll();
@@ -1095,12 +1162,13 @@ function openSettings() {
           <option value="claude-haiku-5-5" ${settings.model === "claude-haiku-5-5" ? "selected" : ""}>Claude Haiku 5.5 · più veloce ed economico</option>
         </select></div>
     </div>
+    <label class="check-row"><input type="checkbox" id="set-auto" ${settings.autoAnalyze !== false ? "checked" : ""}><span>Analizza subito dopo la scansione e aggiungi al Wallet</span></label>
     <p class="small muted" style="margin:0">Le chiavi restano salvate solo su questo telefono e vengono inviate solo a Google (Gemini) o ad Anthropic (Claude).</p>
     <div id="set-msg"></div>
     <div class="row"><button class="btn primary" data-set="save">Salva</button><button class="btn" data-set="test">Prova la chiave</button></div>
     ${(settings.key || settings.gkey) ? `<button class="btn ghost tone-bad" data-set="forget">Rimuovi le chiavi da questo telefono</button>` : ""}
     <details class="manual"><summary><span>Dati dell'app</span></summary>
-      <p class="small muted" style="margin:10px 0">Slab e portfolio sono salvati solo su questo telefono (${state.items.size} elementi). Se cancelli i dati del browser li perdi.</p>
+      <p class="small muted" style="margin:10px 0">Wallet e portfolio sono salvati solo su questo telefono (${state.items.size} elementi). Se cancelli i dati del browser li perdi.</p>
       <div class="row"><button class="btn sm" data-set="export">Esporta backup</button><label class="btn sm" for="set-import">Importa backup</label><input type="file" id="set-import" accept="application/json" class="sr"></div>
       <div style="margin-top:10px">${state.confirmWipe ? `<button class="btn sm tone-bad" data-set="wipe2">Conferma: cancella tutto</button>` : `<button class="btn sm ghost tone-bad" data-set="wipe">Cancella tutti i dati</button>`}</div>
     </details>`);
@@ -1120,6 +1188,7 @@ document.addEventListener("click", async e => {
     settings.key = $("#set-key").value.trim(); settings.model = $("#set-model").value;
     settings.gkey = $("#set-gkey").value.trim(); settings.gmodel = $("#set-gmodel").value.trim() || "gemini-flash-latest";
     settings.provider = $('[data-set="prov-gemini"]').getAttribute("aria-pressed") === "true" ? "gemini" : "claude";
+    settings.autoAnalyze = $("#set-auto").checked;
   };
   if (a === "prov-gemini" || a === "prov-claude") {
     const g = a === "prov-gemini";
@@ -1152,9 +1221,13 @@ document.addEventListener("click", e => {
   if (act !== "del") state.confirmDel = null;
   if (act !== "hold-del" && act !== "qty-") state.confirmHold = null;
   switch (act) {
-    case "open-slab": state.slabTab = s?.saved ? "saved" : "history"; renderSlabs(); go("slabs"); break;
+    case "open-slab": renderSlabs(); go("slabs"); break;
     case "to-center": useSideImage("front"); go("centering"); break;
-    case "slab-to-pf": if (s) { addHolding({ name: s.name, set: s.set, number: s.number, game: s.game, variant: "Graded", type: s.type, price: 0 }); toast("Aggiunto: imposta il prezzo nel portfolio"); } break;
+    case "wallet-to-pf": walletToPortfolio(id); break;
+    case "to-portfolio-view": state.pTab = "pf"; renderPortfolio(); go("portfolio"); break;
+    case "gprice-edit": state.editGPrice = id; renderPortfolio(); { const inp = $("#gprice-" + id); inp?.focus(); inp?.select(); } break;
+    case "gprice-ok": { const v = parseFloat(String($("#gprice-" + id)?.value || "").replace(",", ".")); if (s && s.graded && v >= 0) { Store.put(id, { ...s, graded: { ...s.graded, price: Math.round(v * 100) / 100 } }); } state.editGPrice = null; renderPortfolio(); break; }
+    case "slab-to-pf": walletToPortfolio(id); renderSlabs(); break;
     case "apply-cent": {
       const cur = state.result && Store.get(state.result); if (!cur || !Object.keys(cent.results).length) break;
       const c = { ...(cur.cent || { fLR: null, fTB: null, bLR: null, bTB: null }), measured: true };
@@ -1165,13 +1238,10 @@ document.addEventListener("click", e => {
       Store.put(state.result, { ...cur, centering: sc, final: fin, label: gradeLabel(fin), cent: c });
       renderAll(); toast(`Centratura ${f1(sc)} applicata · voto ${f1(fin)}`); break;
     }
-    case "save": if (s) {
-      if (!s.saved && Store.all("slab").filter(x => x.saved).length >= SAVED_MAX) { toast("Hai già 100 slab salvati: eliminane uno"); break; }
-      Store.put(id, { ...s, saved: !s.saved }); renderAll(); toast(s.saved ? "Tolto dai salvati" : "Slab salvato");
-    } break;
+
     case "zoom": if (s) zoomSlab(s); break;
     case "share": if (s) shareSlab(s); break;
-    case "del": if (state.confirmDel === id) { Store.del(id); if (state.result === id) state.result = null; state.confirmDel = null; renderAll(); toast("Slab eliminato"); } else { state.confirmDel = id; renderSlabs(); } break;
+    case "del": if (state.confirmDel === id) { Store.del(id); if (state.result === id) state.result = null; state.confirmDel = null; renderAll(); toast("Carta eliminata dal Wallet"); } else { state.confirmDel = id; renderSlabs(); } break;
     case "qty+": if (s) { Store.put(id, { ...s, qty: (s.qty || 0) + 1 }); recordSnapshot(); renderPortfolio(); } break;
     case "qty-": if (s) { if ((s.qty || 0) <= 1) { state.confirmHold = id; renderPortfolio(); } else { Store.put(id, { ...s, qty: s.qty - 1 }); recordSnapshot(); renderPortfolio(); } } break;
     case "hold-del": Store.del(id); state.confirmHold = null; recordSnapshot(); renderPortfolio(); toast("Rimosso dal portfolio"); break;
@@ -1185,7 +1255,7 @@ document.addEventListener("click", e => {
     case "mk-add": { const src = a.dataset.src === "worth" ? (state.worth || EX_WORTH) : (state.flip || EX_FLIP); const x = src[+a.dataset.i]; if (x) addHolding({ name: x.name, set: x.set, number: x.number, game: x.game || "Pokémon", variant: "Normal", type: x.type, price: x.raw }); break; }
   }
 });
-document.addEventListener("keydown", e => { if (e.key === "Enter" && e.target.classList.contains("price-edit")) { const id = e.target.id.slice(6); document.querySelector(`[data-act="price-ok"][data-id="${id}"]`)?.click(); } });
+document.addEventListener("keydown", e => { if (e.key === "Enter" && e.target.id.startsWith("gprice-")) { document.querySelector(`[data-act="gprice-ok"][data-id="${e.target.id.slice(7)}"]`)?.click(); return; } if (e.key === "Enter" && e.target.classList.contains("price-edit")) { const id = e.target.id.slice(6); document.querySelector(`[data-act="price-ok"][data-id="${id}"]`)?.click(); } });
 
 for (const side of ["front", "back"]) {
   $("#in-" + side).addEventListener("change", e => { const f = e.target.files[0]; e.target.value = ""; if (f) intakeFile(f, side); });
@@ -1235,8 +1305,6 @@ $("#c-reset").addEventListener("click", () => { if (!cent.img) return; const q =
 $("#c-switch").addEventListener("click", () => { cent.mode = cent.mode === "outer" ? "inner" : "outer"; renderCentering(); });
 $("#c-analyze").addEventListener("click", analyzeCentering);
 
-$("#s-tab-history").addEventListener("click", () => { state.slabTab = "history"; renderSlabs(); });
-$("#s-tab-saved").addEventListener("click", () => { state.slabTab = "saved"; renderSlabs(); });
 $("#btn-resync").addEventListener("click", async () => { if (Store.mode === "idb") { try { state.items = await IDB.all(); } catch (e) {} } renderAll(); toast("Dati ricaricati"); });
 
 $("#p-tab-pf").addEventListener("click", () => { state.pTab = "pf"; renderPortfolio(); });

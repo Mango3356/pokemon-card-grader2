@@ -500,3 +500,23 @@ select.field,input.field,textarea.field{background:var(--glass);border:1px solid
 html,body{overflow-x:clip;max-width:100%}
 main.wrap,.view,.panel{min-width:0}
 .row > .btn{min-width:0}
+
+/* wallet */
+.wallet-sum{display:flex;gap:8px;align-items:center;font-size:14px;color:var(--soft)}
+.wallet-sum:empty{display:none}
+.wallet-meta{display:flex;gap:14px;flex-wrap:wrap;justify-content:center;font-size:13px;color:var(--muted)}
+.wallet-meta b{color:var(--fg);font-weight:800}
+.cons-chip{color:var(--accent);font-weight:700}
+.btn.in-pf{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 40%,transparent);background:color-mix(in srgb,var(--accent) 10%,transparent)}
+.btn svg{width:16px;height:16px}
+.notice.cons{color:var(--soft)}
+.notice.cons b{color:var(--fg)}
+/* portfolio graded prices */
+.hold-img{width:56px;aspect-ratio:63/88;object-fit:cover;border-radius:7px;display:block;box-shadow:0 4px 10px rgba(0,0,0,.25)}
+.price-pill.graded{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 40%,transparent)}
+.grade-tag{color:var(--accent);font-weight:700}
+.hold .up{color:var(--good);font-weight:700}.hold .down{color:var(--bad);font-weight:700}
+.graded-total{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-top:6px;padding:10px 12px;border-radius:16px;background:color-mix(in srgb,var(--accent) 10%,transparent);color:var(--soft);font-size:13.5px}
+.graded-total b{color:var(--accent);font-size:18px;font-weight:800;font-variant-numeric:tabular-nums}
+.check-row{display:flex;gap:10px;align-items:flex-start;font-size:14px;cursor:pointer}
+.check-row input{width:20px;height:20px;accent-color:var(--accent);flex:none;margin-top:1px}

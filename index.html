@@ -47,8 +47,8 @@
     <div class="field-wrap" style="max-width:280px;align-self:center;width:100%">
       <label for="accuracy">Precisione grading</label>
       <select id="accuracy" class="field">
-        <option value="default">Standard · più veloce</option>
-        <option value="complex">Alta · più accurata</option>
+        <option value="default">Standard · 1 analisi, più veloce</option>
+        <option value="complex">Alta · 3 analisi, voto più stabile</option>
       </select>
     </div>
     <div class="slots">
@@ -89,7 +89,7 @@
       <div class="slider"><span>Angoli</span><input type="range" id="m-corners" min="1" max="10" step="0.5" value="9"><b class="mono" id="m-corners-v">9.0</b></div>
       <div class="slider"><span>Bordi</span><input type="range" id="m-edges" min="1" max="10" step="0.5" value="9"><b class="mono" id="m-edges-v">9.0</b></div>
       <div class="slider"><span>Superficie</span><input type="range" id="m-surface" min="1" max="10" step="0.5" value="9"><b class="mono" id="m-surface-v">9.0</b></div>
-      <button class="btn block" id="btn-manual">Crea slab con questi voti</button>
+      <button class="btn block" id="btn-manual">Aggiungi al Wallet con questi voti</button>
     </div>
   </details>
 </section>
@@ -131,11 +131,8 @@
 
 <!-- SLABS -->
 <section class="view" id="v-slabs" data-view="slabs" hidden>
-  <div class="view-title"><h1>I miei slab</h1><button class="icon-btn" id="btn-resync" aria-label="Aggiorna"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/></svg></button></div>
-  <div class="seg" role="group" aria-label="Elenco">
-    <button id="s-tab-history" aria-pressed="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l3 2"/></svg>Cronologia <span class="count" id="s-count-h">0/10</span></button>
-    <button id="s-tab-saved" aria-pressed="false"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M6 3h12v18l-6-4-6 4z"/></svg>Salvati <span class="count" id="s-count-s">0/100</span></button>
-  </div>
+  <div class="view-title"><h1>Wallet</h1><button class="icon-btn" id="btn-resync" aria-label="Aggiorna"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/></svg></button></div>
+  <div class="wallet-sum" id="wallet-sum"></div>
   <div class="list" id="slab-list"></div>
 </section>
 
@@ -205,7 +202,7 @@
   <div class="wrap">
     <button data-go="grade"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7V4h3M17 4h3v3M20 17v3h-3M7 20H4v-3"/><rect x="8" y="7" width="8" height="10" rx="1"/></svg>Grading</button>
     <button data-go="centering"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><rect x="4" y="3" width="16" height="18" rx="2"/><rect x="8" y="7" width="8" height="10" rx="1"/><path d="M12 3v4M12 17v4M4 12h4M16 12h4"/></svg>Centratura</button>
-    <button data-go="slabs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><rect x="5" y="2.5" width="14" height="19" rx="2"/><path d="M8 7h8"/><rect x="8" y="10" width="8" height="8" rx="1"/></svg>Slab</button>
+    <button data-go="slabs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><rect x="5" y="2.5" width="14" height="19" rx="2"/><path d="M8 7h8"/><rect x="8" y="10" width="8" height="8" rx="1"/></svg>Wallet</button>
     <button data-go="portfolio"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l5-5 4 3 8-8"/><path d="M15 7h5v5"/></svg>Portfolio</button>
     <button data-go="market"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.6 5.6 6 .7-4.5 4.1 1.2 6L12 16.5 6.7 19.4l1.2-6L3.4 9.3l6-.7z"/></svg>Mercato</button>
   </div>
