@@ -490,3 +490,8 @@ select.field,input.field,textarea.field{background:var(--glass);border:1px solid
 .sc-chip{background:var(--glass);border:1px solid var(--line)}
 .sc-chip.ok{color:var(--accent)} .sc-chip.warn{color:var(--sun)}
 .sub svg.ring{width:46px;height:46px;color:inherit}
+
+/* GradScan brand */
+.brand-mark{width:38px;height:38px;flex:none;filter:drop-shadow(0 4px 10px rgba(38,176,141,.35))}
+.brand-name{font-size:21px;letter-spacing:-.03em}
+.brand-name span{color:var(--accent)}

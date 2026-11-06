@@ -1,4 +1,4 @@
-# Gem Mint Lab
+# GradScan
 
 Scanner e pre-grading AI di carte Pokémon e altri TCG, pensato per il telefono. Stile Notte Vetro: scuro con schede in vetro, menta e ambra (anche in versione chiara).
 

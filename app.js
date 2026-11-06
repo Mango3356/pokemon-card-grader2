@@ -693,7 +693,7 @@ function slabHTML(s) {
     <div class="slab-label">
       <div><div class="nm">${esc(s.name)}${s.number ? " " + esc(s.number) : ""}</div>
         <div class="sl"><span>Centering</span><span>${f1(s.centering)}</span><span>Surface</span><span>${f1(s.surface)}</span><span>Edges</span><span>${f1(s.edges)}</span><span>Corners</span><span>${f1(s.corners)}</span></div></div>
-      <div class="gr"><div class="lg">GML</div><div class="g">${f1(s.final)}</div><div class="t">${esc(s.label)}</div></div>
+      <div class="gr"><div class="lg">GRADSCAN</div><div class="g">${f1(s.final)}</div><div class="t">${esc(s.label)}</div></div>
     </div>
     <div class="slab-window">${s.front ? `<img src="${s.front}" alt="">` : artHTML({ name: s.name, number: s.number, type: s.type })}</div>
   </div>`;
@@ -745,7 +745,7 @@ async function slabCanvas(s) {
     x.fillStyle = "#63E6BE"; x.fillText(k, 130, 185 + i * 36); x.fillStyle = "#fff"; x.fillText(f1(v), 470, 185 + i * 36);
   });
   x.strokeStyle = "#2A3442"; x.lineWidth = 2; x.beginPath(); x.moveTo(570, 95); x.lineTo(570, 315); x.stroke();
-  x.textAlign = "center"; x.fillStyle = "#63E6BE"; x.font = "800 22px Manrope, Arial, sans-serif"; x.fillText("GEM MINT LAB", 695, 130);
+  x.textAlign = "center"; x.fillStyle = "#63E6BE"; x.font = "800 22px Manrope, Arial, sans-serif"; x.fillText("GRADSCAN", 695, 130);
   x.fillStyle = "#fff"; x.font = "800 110px Manrope, Arial, sans-serif"; x.fillText(f1(s.final), 695, 250);
   x.fillStyle = "#63E6BE"; x.font = "800 22px Manrope, Arial, sans-serif"; x.fillText(s.label, 695, 295); x.textAlign = "left";
   rr(80, 370, W - 160, H - 470, 18); x.fillStyle = "#0F151D"; x.fill();
@@ -759,7 +759,7 @@ async function slabCanvas(s) {
   return c;
 }
 async function shareSlab(s) {
-  const text = `${s.name}${s.number ? " " + s.number : ""} — Voto ${f1(s.final)} (${s.label}) · Centratura ${f1(s.centering)} · Angoli ${f1(s.corners)} · Bordi ${f1(s.edges)} · Superficie ${f1(s.surface)} — pre-grading Gem Mint Lab`;
+  const text = `${s.name}${s.number ? " " + s.number : ""} — Voto ${f1(s.final)} (${s.label}) · Centratura ${f1(s.centering)} · Angoli ${f1(s.corners)} · Bordi ${f1(s.edges)} · Superficie ${f1(s.surface)} — pre-grading GradScan`;
   const fname = `slab-${(s.name || "carta").replace(/[^\w\-]+/g, "-").toLowerCase()}.png`;
   let blob = null;
   try { const c = await slabCanvas(s); blob = await new Promise(r => c.toBlob(r, "image/png")); } catch (e) {}
@@ -1009,7 +1009,7 @@ type tra fire, water, grass, electric, psychic, fighting, dark, steel, dragon, f
 
 /* ---------------- header + nav ---------------- */
 function renderSync() {
-  const s = $("#sync");
+  const s = $("#sync"); if (!s) return;
   if (activeKey()) { s.className = "sync ok"; s.textContent = "● " + providerName(); }
   else { s.className = "sync local"; s.textContent = "● AI spenta"; }
 }
@@ -1134,8 +1134,8 @@ document.addEventListener("click", async e => {
   }
   else if (a === "forget") { settings.key = ""; settings.gkey = ""; saveSettings(settings); renderSync(); closeModal(); toast("Chiavi rimosse da questo telefono"); }
   else if (a === "export") {
-    const blob = new Blob([JSON.stringify({ app: "gem-mint-lab", v: 1, t: Date.now(), items: Object.fromEntries(state.items) })], { type: "application/json" });
-    const el = document.createElement("a"); el.href = URL.createObjectURL(blob); el.download = `gem-mint-lab-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    const blob = new Blob([JSON.stringify({ app: "gradscan", v: 1, t: Date.now(), items: Object.fromEntries(state.items) })], { type: "application/json" });
+    const el = document.createElement("a"); el.href = URL.createObjectURL(blob); el.download = `gradscan-backup-${new Date().toISOString().slice(0, 10)}.json`;
     document.body.appendChild(el); el.click(); el.remove(); toast("Backup scaricato");
   }
   else if (a === "wipe") { state.confirmWipe = true; openSettings(); }

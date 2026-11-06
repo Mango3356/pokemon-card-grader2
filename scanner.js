@@ -1,4 +1,4 @@
-/* Gem Mint Lab — live card scanner
+/* GradScan — live card scanner
  * Camera preview, card edge detection (Sobel + RANSAC lines), perspective
  * rectification to a flat 63×88 image, inner-border detection for automatic
  * centering, glare and sharpness checks. No external libraries.
