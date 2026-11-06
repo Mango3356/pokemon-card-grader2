@@ -1,6 +1,6 @@
 # Gem Mint Lab
 
-Scanner e pre-grading AI di carte Pokémon e altri TCG, pensato per il telefono. Stile cartoon minimale verde e giallo.
+Scanner e pre-grading AI di carte Pokémon e altri TCG, pensato per il telefono. Stile Notte Vetro: scuro con schede in vetro, menta e ambra (anche in versione chiara).
 
 **Apri l'app:** https://mango3356.github.io/pokemon-card-grader2/
 

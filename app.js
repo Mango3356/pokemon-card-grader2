@@ -500,8 +500,6 @@ function slotFace(side) {
 }
 function renderGrade() {
   const m = Store.get("meta"); const n = m?.graded || 0;
-  $("#saved-amt").textContent = fmt$0(n * FEE);
-  $("#saved-sub").textContent = `${n} ${n === 1 ? "carta pre-valutata" : "carte pre-valutate"} · stima $${FEE} a carta`;
   for (const side of ["front", "back"]) {
     $("#face-" + side).innerHTML = slotFace(side);
     $("#slot-" + side).classList.toggle("has", !!state[side]);
@@ -517,13 +515,22 @@ function renderGrade() {
   const r = state.result && Store.get(state.result);
   $("#result").innerHTML = r ? resultHTML({ id: state.result, ...r }) : "";
 }
+/* Apple Watch–style progress ring */
+function ringSVG(v, size, stroke) {
+  const r = (size - stroke) / 2, C = 2 * Math.PI * r, f = clamp(Number(v) / 10, 0, 1);
+  const col = v >= 9 ? "var(--accent)" : v >= 7 ? "var(--sun)" : "var(--bad)";
+  return `<svg class="ring" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" aria-hidden="true"><circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="var(--track)" stroke-width="${stroke}"/><circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="${col}" stroke-width="${stroke}" stroke-linecap="round" stroke-dasharray="${(C * f).toFixed(1)} ${C.toFixed(1)}" transform="rotate(-90 ${size / 2} ${size / 2})"/></svg>`;
+}
 function resultHTML(r) {
-  const tiles = [["edges", "Bordi"], ["corners", "Angoli"], ["surface", "Superficie"], ["centering", "Centratura"]]
-    .map(([k, l]) => `<div class="sub">${ICON[k]}<div><div class="k" style="color:${k === "centering" ? "var(--good)" : "var(--accent-2)"}">${l}</div><div class="v">${f1(r[k])}</div></div></div>`).join("");
+  const tiles = [["centering", "Centratura"], ["surface", "Superficie"], ["edges", "Bordi"], ["corners", "Angoli"]]
+    .map(([k, l]) => `<div class="sub">${ringSVG(r[k], 46, 6)}<div><div class="k">${l}</div><div class="v">${f1(r[k])}</div></div></div>`).join("");
   return `<div class="panel" style="display:flex;flex-direction:column;gap:14px">
     <div class="result-head"><span class="eyebrow">Carta rilevata</span><h2>${esc(r.name)}${r.number ? " " + esc(r.number) : ""}</h2>${r.set ? `<span class="muted small">${esc(r.set)}${r.game ? " · " + esc(r.game) : ""}</span>` : ""}</div>
+    <div class="final">
+      <div class="final-ring">${ringSVG(r.final, 124, 12)}<div class="final-num"><div class="n">${f1(r.final)}</div><div class="l">SU 10</div></div></div>
+      <div class="final-info"><div class="eyebrow">Voto finale · scala Beckett</div><div class="final-label">${esc(r.label)}</div>${r.confidence ? `<div class="conf-pill"><i></i>Affidabilità ${esc(r.confidence)}</div>` : ""}</div>
+    </div>
     <div class="subs">${tiles}</div>
-    <div class="final"><div class="eyebrow">Voto finale (scala Beckett)</div><div class="n">${f1(r.final)}</div><div class="l">${esc(r.label)}${r.confidence ? " · affidabilità " + esc(r.confidence) : ""}</div></div>
     ${companyHTML(r)}
     ${centLine(r) ? `<div class="small muted">${centLine(r)}</div>` : ""}
     <div class="note"><h3>${ICON.spark}${r.manual ? "Nota" : "Nota AI"}</h3><p>${esc(r.note)}</p>${r.defects?.length ? `<ul class="defects">${r.defects.map(d => `<li>${esc(d)}</li>`).join("")}</ul>` : ""}</div>
@@ -564,7 +571,7 @@ function drawCent() {
   const g = stageGeom(); const dpr = window.devicePixelRatio || 1;
   cv.width = Math.round(g.W * dpr); cv.height = Math.round(g.H * dpr); cv.style.height = g.H + "px";
   const x = cv.getContext("2d"); x.setTransform(dpr, 0, 0, dpr, 0, 0);
-  x.fillStyle = "#173a1d"; x.fillRect(0, 0, g.W, g.H);
+  x.fillStyle = "#0B0F14"; x.fillRect(0, 0, g.W, g.H);
   x.drawImage(cent.img, g.ox, g.oy, g.dw, g.dh);
   const P = p => [g.ox + p[0] * g.s, g.oy + p[1] * g.s];
   const css = getComputedStyle(document.documentElement);
@@ -582,7 +589,7 @@ function drawLoupe(pt) {
   L.fillStyle = "#000"; L.fillRect(0, 0, S, S);
   L.imageSmoothingEnabled = false;
   L.drawImage(cent.img, pt[0] - src / 2, pt[1] - src / 2, src, src, 0, 0, S, S);
-  const col = cent.mode === "outer" ? "#ff8a3d" : "#2fae5c";
+  const col = cent.mode === "outer" ? "#FFB547" : "#63E6BE";
   L.strokeStyle = col; L.lineWidth = 2;
   L.beginPath(); L.moveTo(S / 2, 20); L.lineTo(S / 2, S - 20); L.moveTo(20, S / 2); L.lineTo(S - 20, S / 2); L.stroke();
   loupe.style.borderColor = col;
@@ -724,24 +731,24 @@ function renderSlabs() {
 async function slabCanvas(s) {
   try { await document.fonts.ready; } catch (e) {}
   const W = 900, H = 1380, c = document.createElement("canvas"); c.width = W; c.height = H; const x = c.getContext("2d");
-  x.fillStyle = "#f3f9dc"; x.fillRect(0, 0, W, H);
+  x.fillStyle = "#0B0F14"; x.fillRect(0, 0, W, H);
   const rr = (X, Y, w, h, r) => { x.beginPath(); x.roundRect(X, Y, w, h, r); };
-  const g = x.createLinearGradient(0, 0, W, H); g.addColorStop(0, "#fdfff4"); g.addColorStop(1, "#d7e8b4");
+  const g = x.createLinearGradient(0, 0, W, H); g.addColorStop(0, "#EEF2F6"); g.addColorStop(1, "#B9C2CE");
   rr(50, 40, W - 100, H - 80, 34); x.fillStyle = g; x.fill();
-  rr(80, 70, W - 160, 270, 18); x.fillStyle = "#1f3d22"; x.fill();
-  x.fillStyle = "#fffbe6"; x.font = "700 38px Fredoka, Arial, sans-serif";
+  rr(80, 70, W - 160, 270, 18); x.fillStyle = "#0F151D"; x.fill();
+  x.fillStyle = "#F5F7FA"; x.font = "800 38px Manrope, Arial, sans-serif";
   let nm = (s.name + (s.number ? " " + s.number : "")).toUpperCase(); while (x.measureText(nm).width > 470 && nm.length > 4) nm = nm.slice(0, -2) + "…";
   x.fillText(nm, 110, 130);
-  x.fillStyle = "#ffd23f"; x.fillRect(110, 155, 5, 150);
-  x.font = "800 24px Nunito, Arial, sans-serif";
+  x.fillStyle = "#63E6BE"; x.fillRect(110, 155, 5, 150);
+  x.font = "800 24px Manrope, Arial, sans-serif";
   [["CENTERING", s.centering], ["SURFACE", s.surface], ["EDGES", s.edges], ["CORNERS", s.corners]].forEach(([k, v], i) => {
-    x.fillStyle = "#ffd23f"; x.fillText(k, 130, 185 + i * 36); x.fillStyle = "#fff"; x.fillText(f1(v), 470, 185 + i * 36);
+    x.fillStyle = "#63E6BE"; x.fillText(k, 130, 185 + i * 36); x.fillStyle = "#fff"; x.fillText(f1(v), 470, 185 + i * 36);
   });
-  x.strokeStyle = "#335c36"; x.lineWidth = 2; x.beginPath(); x.moveTo(570, 95); x.lineTo(570, 315); x.stroke();
-  x.textAlign = "center"; x.fillStyle = "#ffd23f"; x.font = "800 22px Nunito, Arial, sans-serif"; x.fillText("GEM MINT LAB", 695, 130);
-  x.fillStyle = "#fff"; x.font = "700 110px Fredoka, Arial, sans-serif"; x.fillText(f1(s.final), 695, 250);
-  x.fillStyle = "#ffd23f"; x.font = "800 22px Nunito, Arial, sans-serif"; x.fillText(s.label, 695, 295); x.textAlign = "left";
-  rr(80, 370, W - 160, H - 470, 18); x.fillStyle = "#173a1d"; x.fill();
+  x.strokeStyle = "#2A3442"; x.lineWidth = 2; x.beginPath(); x.moveTo(570, 95); x.lineTo(570, 315); x.stroke();
+  x.textAlign = "center"; x.fillStyle = "#63E6BE"; x.font = "800 22px Manrope, Arial, sans-serif"; x.fillText("GEM MINT LAB", 695, 130);
+  x.fillStyle = "#fff"; x.font = "800 110px Manrope, Arial, sans-serif"; x.fillText(f1(s.final), 695, 250);
+  x.fillStyle = "#63E6BE"; x.font = "800 22px Manrope, Arial, sans-serif"; x.fillText(s.label, 695, 295); x.textAlign = "left";
+  rr(80, 370, W - 160, H - 470, 18); x.fillStyle = "#0F151D"; x.fill();
   if (s.front) {
     try {
       const im = await loadImg(s.front); const bw = W - 220, bh = H - 530;
@@ -1199,7 +1206,7 @@ const effectiveTheme = () => document.documentElement.dataset.theme || (darkMQ.m
 function syncThemeUI() {
   const t = effectiveTheme();
   $("#btn-theme").setAttribute("aria-label", t === "dark" ? "Passa al tema chiaro" : "Passa al tema scuro");
-  $$('meta[name="theme-color"]').forEach(m => { m.removeAttribute("media"); m.setAttribute("content", t === "dark" ? "#13261a" : "#f3f9dc"); });
+  $$('meta[name="theme-color"]').forEach(m => { m.removeAttribute("media"); m.setAttribute("content", t === "dark" ? "#0B0F14" : "#F2F4F7"); });
   if (state.view === "centering") drawCent();
 }
 $("#btn-theme").addEventListener("click", () => {
