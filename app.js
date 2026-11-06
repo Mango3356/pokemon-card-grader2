@@ -100,11 +100,20 @@ const Store = {
 
 /* ---------------- AI: Claude API with the user's own key ---------------- */
 const SETTINGS_KEY = "gml-settings-v1";
-function loadSettings() { try { return { model: "claude-sonnet-5-5", ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") }; } catch (e) { return { model: "claude-sonnet-5-5" }; } }
-function saveSettings(s) { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); } catch (e) {} }
+const SET_DEFAULTS = { provider: "gemini", model: "claude-sonnet-5-5", gmodel: "gemini-flash-latest", key: "", gkey: "" };
+function loadSettings() {
+  try {
+    const s = { ...SET_DEFAULTS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") };
+    if (!localStorage.getItem(SETTINGS_KEY + "-p") && s.key && !s.gkey) s.provider = "claude"; // older installs with a Claude key
+    return s;
+  } catch (e) { return { ...SET_DEFAULTS }; }
+}
+function saveSettings(s) { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); localStorage.setItem(SETTINGS_KEY + "-p", "1"); } catch (e) {} }
+const activeKey = () => settings.provider === "gemini" ? settings.gkey : settings.key;
+const providerName = () => settings.provider === "gemini" ? "Gemini" : "Claude";
 const settings = loadSettings();
 const MODELS = { quick: "claude-haiku-5-5", complex: "claude-opus-5-5" };
-const NO_KEY = "Per usare l'AI aggiungi la tua chiave API di Claude in Impostazioni (icona ingranaggio in alto). Scansione, centratura e valutazione manuale funzionano anche senza.";
+const NO_KEY = "Per usare l'AI aggiungi una chiave API in Impostazioni (ingranaggio in alto): Gemini è gratis, Claude è a pagamento. Scansione, centratura e valutazione manuale funzionano anche senza.";
 const blobToB64 = b => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(",")[1]); r.onerror = () => rej(r.error); r.readAsDataURL(b); });
 function parseJSONLoose(t) {
   t = String(t || "").trim();
@@ -115,6 +124,43 @@ function parseJSONLoose(t) {
   if (a < b) { try { return JSON.parse(t.slice(a, b + 1)); } catch (e) {} }
   throw Object.assign(new Error("invalid_json"), { code: "invalid_json", text: t });
 }
+async function geminiCall(prompt, opts = {}) {
+  if (!settings.gkey) throw Object.assign(new Error("no_key"), { code: "no_key" });
+  const model = (settings.gmodel || "gemini-flash-latest").trim();
+  const parts = [];
+  const imgs = opts.images ? [].concat(opts.images) : [];
+  for (const im of imgs) parts.push({ inline_data: { mime_type: im.type && /^image\/(jpeg|png|webp|heic|heif)$/.test(im.type) ? im.type : "image/jpeg", data: await blobToB64(im) } });
+  parts.push({ text: prompt });
+  let res;
+  try {
+    res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+      method: "POST", signal: opts.signal,
+      headers: { "content-type": "application/json", "x-goog-api-key": settings.gkey },
+      body: JSON.stringify({ contents: [{ role: "user", parts }], generationConfig: { maxOutputTokens: opts.maxTokens ? Math.max(opts.maxTokens, 64) : 8192, temperature: 0.2, ...(opts.json ? { responseMimeType: "application/json" } : {}) } })
+    });
+  } catch (e) {
+    if (e?.name === "AbortError") throw Object.assign(new Error("cancelled"), { code: "cancelled" });
+    throw Object.assign(new Error("network"), { code: "network" });
+  }
+  let body = null; try { body = await res.json(); } catch (e) {}
+  if (!res.ok) {
+    const msg = body?.error?.message || "", st = body?.error?.status || "";
+    const code = /API_KEY_INVALID|API key not valid/i.test(msg) || res.status === 401 ? "bad_key"
+      : res.status === 429 || st === "RESOURCE_EXHAUSTED" ? "g_quota"
+      : res.status === 404 ? "model" : res.status === 403 ? "forbidden"
+      : (res.status === 503 || res.status === 500) ? "overloaded"
+      : /location is not supported|region/i.test(msg) ? "g_region" : "http_" + res.status;
+    throw Object.assign(new Error(code), { code, detail: msg.slice(0, 160) });
+  }
+  const cand = body?.candidates?.[0];
+  const text = (cand?.content?.parts || []).map(p => p.text || "").join("");
+  if (!text) {
+    const why = cand?.finishReason || body?.promptFeedback?.blockReason || "";
+    throw Object.assign(new Error("empty"), { code: /SAFETY|BLOCK|PROHIBITED/i.test(why) ? "g_blocked" : "empty", detail: why });
+  }
+  return text;
+}
+async function aiCall(prompt, opts = {}) { return settings.provider === "gemini" ? geminiCall(prompt, opts) : claudeCall(prompt, opts); }
 async function claudeCall(prompt, opts = {}) {
   if (!settings.key) throw Object.assign(new Error("no_key"), { code: "no_key" });
   const model = opts.modelTier === "complex" ? MODELS.complex : opts.modelTier === "quick" ? MODELS.quick : (settings.model || "claude-sonnet-5-5");
@@ -143,8 +189,8 @@ async function claudeCall(prompt, opts = {}) {
   }
   return (body?.content || []).filter(c => c.type === "text").map(c => c.text).join("");
 }
-const AI = { json: async (p, o) => parseJSONLoose(await claudeCall(p + "\n\nRispondi solo con il JSON richiesto, senza testo prima o dopo.", o)) };
-async function getAI() { return settings.key ? { s: AI, images: true } : null; }
+const AI = { json: async (p, o = {}) => parseJSONLoose(await aiCall(p + "\n\nRispondi solo con il JSON richiesto, senza testo prima o dopo.", { ...o, json: true })) };
+async function getAI() { return activeKey() ? { s: AI, images: true } : null; }
 function aiErr(e) {
   switch (e?.code) {
     case "no_key": return NO_KEY;
@@ -152,8 +198,12 @@ function aiErr(e) {
     case "forbidden": return "La chiave API non ha i permessi per questa richiesta.";
     case "billing": return "Credito API esaurito: ricarica su console.anthropic.com › Billing.";
     case "rate_limited": return "Troppe richieste in poco tempo. Aspetta un minuto e riprova.";
+    case "g_quota": return "Hai raggiunto il limite gratuito di Gemini (al minuto o al giorno). Aspetta un po' e riprova, oppure passa a Claude in Impostazioni.";
+    case "g_region": return "Gemini non è disponibile nel tuo paese con questa chiave.";
+    case "g_blocked": return "Gemini ha bloccato la risposta per i suoi filtri. Riprova con un'altra foto.";
+    case "empty": return "L'AI non ha restituito una risposta. Riprova.";
     case "overloaded": return "I server di Claude sono sovraccarichi in questo momento. Riprova tra poco.";
-    case "model": return "Modello non disponibile per la tua chiave. Scegline un altro in Impostazioni.";
+    case "model": return "Modello non trovato o non disponibile per la tua chiave. Controlla il nome del modello in Impostazioni.";
     case "network": return "Nessuna connessione a internet, oppure la richiesta è stata bloccata.";
     case "invalid_json": return "La risposta dell'AI non era leggibile. Premi di nuovo per riprovare.";
     case "cancelled": return "Operazione annullata.";
@@ -400,7 +450,7 @@ function renderGrade() {
     ? `<span class="spin" aria-hidden="true"></span><span>Annulla analisi</span>`
     : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 16v-4M12 16V8M16 16v-6"/></svg><span>Analizza con AI</span>`;
   $("#ai-state").innerHTML = state.busy
-    ? `<div class="notice info"><span class="spin" aria-hidden="true"></span><span>Claude sta esaminando centratura, angoli, bordi e superficie. Ci vogliono di solito 15–40 secondi.</span></div>`
+    ? `<div class="notice info"><span class="spin" aria-hidden="true"></span><span>${providerName()} sta esaminando centratura, angoli, bordi e superficie. Ci vogliono di solito 15–40 secondi.</span></div>`
     : state.aiError ? `<div class="notice bad">${ICON.warn}<span>${esc(state.aiError)}</span></div>` : "";
   const r = state.result && Store.get(state.result);
   $("#result").innerHTML = r ? resultHTML({ id: state.result, ...r }) : "";
@@ -827,7 +877,7 @@ function renderMarket() {
   $("#m-title").textContent = state.mTab === "worth" ? "Da comprare" : "Grade Flip";
   const wl = state.worth || EX_WORTH, wex = !state.worth;
   $("#w-go").disabled = state.worthBusy; $("#f-go").disabled = state.flipBusy;
-  $("#w-state").innerHTML = state.worthBusy ? `<div class="notice info"><span class="spin"></span><span>Claude sta analizzando liquidità, domanda e rischio…</span></div>`
+  $("#w-state").innerHTML = state.worthBusy ? `<div class="notice info"><span class="spin"></span><span>${providerName()} sta analizzando liquidità, domanda e rischio…</span></div>`
     : state.worthErr ? `<div class="notice bad">${ICON.warn}<span>${esc(state.worthErr)}</span></div>`
     : wex ? `<div class="notice warn">${ICON.info}<span>Dati di esempio. Scegli gioco e fascia di prezzo e premi “Trova opportunità con AI”.</span></div>` : "";
   $("#w-list").innerHTML = wl.map((c, i) => `<div class="mk">
@@ -840,7 +890,7 @@ function renderMarket() {
   </div>`).join("");
 
   const fl = state.flip || EX_FLIP, fex = !state.flip; const fee = Number($("#f-fee").value) || 0;
-  $("#f-state").innerHTML = state.flipBusy ? `<div class="notice info"><span class="spin"></span><span>Claude sta cercando carte con il miglior salto di valore da raw a graded…</span></div>`
+  $("#f-state").innerHTML = state.flipBusy ? `<div class="notice info"><span class="spin"></span><span>${providerName()} sta cercando carte con il miglior salto di valore da raw a graded…</span></div>`
     : state.flipErr ? `<div class="notice bad">${ICON.warn}<span>${esc(state.flipErr)}</span></div>`
     : fex ? `<div class="notice warn">${ICON.info}<span>Dati di esempio. Imposta i filtri e premi “Trova grade flip con AI”.</span></div>` : "";
   $("#f-list").innerHTML = fl.map((c, i) => {
@@ -891,7 +941,7 @@ type tra fire, water, grass, electric, psychic, fighting, dark, steel, dragon, f
 /* ---------------- header + nav ---------------- */
 function renderSync() {
   const s = $("#sync");
-  if (settings.key) { s.className = "sync ok"; s.textContent = "● AI attiva"; }
+  if (activeKey()) { s.className = "sync ok"; s.textContent = "● " + providerName(); }
   else { s.className = "sync local"; s.textContent = "● AI spenta"; }
 }
 function go(view, push = true) {
@@ -950,20 +1000,36 @@ const HELP = {
 
 /* ---------------- settings ---------------- */
 function openSettings() {
-  const k = settings.key || "";
+  const g = settings.provider === "gemini";
   openModal(`<div class="hdr-row"><h2>Impostazioni</h2><button class="icon-btn" data-close aria-label="Chiudi">✕</button></div>
-    <div class="field-wrap"><label for="set-key">Chiave API di Claude</label>
-      <input id="set-key" class="field mono" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-..." value="${esc(k)}"></div>
-    <p class="small muted">Serve per grading AI, ricerca prezzi e mercato. La crei su <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a> › API Keys. Resta salvata solo su questo telefono e viene inviata solo ad api.anthropic.com. L'uso dell'API si paga a consumo, separatamente dall'abbonamento Claude: un grading costa pochi centesimi.</p>
-    <div class="field-wrap"><label for="set-model">Modello per il grading standard</label>
-      <select id="set-model" class="field">
-        <option value="claude-sonnet-5-5" ${settings.model === "claude-sonnet-5-5" ? "selected" : ""}>Claude Sonnet 5.5 · bilanciato</option>
-        <option value="claude-opus-5-5" ${settings.model === "claude-opus-5-5" ? "selected" : ""}>Claude Opus 5.5 · più accurato</option>
-        <option value="claude-haiku-5-5" ${settings.model === "claude-haiku-5-5" ? "selected" : ""}>Claude Haiku 5.5 · più veloce ed economico</option>
-      </select></div>
+    <div class="field-wrap"><label>Intelligenza artificiale</label>
+      <div class="seg" role="group" aria-label="Fornitore AI">
+        <button data-set="prov-gemini" aria-pressed="${g}">Gemini · gratis</button>
+        <button data-set="prov-claude" aria-pressed="${!g}">Claude · pagamento</button>
+      </div></div>
+    <div id="set-gemini" ${g ? "" : "hidden"} style="display:flex;flex-direction:column;gap:12px">
+      <div class="field-wrap"><label for="set-gkey">Chiave API di Gemini</label>
+        <input id="set-gkey" class="field mono" type="password" autocomplete="off" spellcheck="false" placeholder="AIza..." value="${esc(settings.gkey || "")}"></div>
+      <p class="small muted" style="margin:0">Creala gratis su <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> › Create API key. Il piano gratuito ha un limite di richieste al minuto e al giorno.</p>
+      <div class="field-wrap"><label for="set-gmodel">Modello Gemini</label>
+        <input id="set-gmodel" class="field mono" autocomplete="off" spellcheck="false" value="${esc(settings.gmodel || "gemini-flash-latest")}"></div>
+      <p class="small muted" style="margin:0">Lascia <span class="mono">gemini-flash-latest</span> se non sai cosa scegliere: punta sempre all'ultimo modello Flash.</p>
+    </div>
+    <div id="set-claude" ${g ? "hidden" : ""} style="display:flex;flex-direction:column;gap:12px">
+      <div class="field-wrap"><label for="set-key">Chiave API di Claude</label>
+        <input id="set-key" class="field mono" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-..." value="${esc(settings.key || "")}"></div>
+      <p class="small muted" style="margin:0">La crei su <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a> › API Keys. Si paga a consumo con credito prepagato, separato dall'abbonamento Claude.</p>
+      <div class="field-wrap"><label for="set-model">Modello per il grading standard</label>
+        <select id="set-model" class="field">
+          <option value="claude-sonnet-5-5" ${settings.model === "claude-sonnet-5-5" ? "selected" : ""}>Claude Sonnet 5.5 · bilanciato</option>
+          <option value="claude-opus-5-5" ${settings.model === "claude-opus-5-5" ? "selected" : ""}>Claude Opus 5.5 · più accurato</option>
+          <option value="claude-haiku-5-5" ${settings.model === "claude-haiku-5-5" ? "selected" : ""}>Claude Haiku 5.5 · più veloce ed economico</option>
+        </select></div>
+    </div>
+    <p class="small muted" style="margin:0">Le chiavi restano salvate solo su questo telefono e vengono inviate solo a Google (Gemini) o ad Anthropic (Claude).</p>
     <div id="set-msg"></div>
     <div class="row"><button class="btn primary" data-set="save">Salva</button><button class="btn" data-set="test">Prova la chiave</button></div>
-    ${k ? `<button class="btn ghost tone-bad" data-set="forget">Rimuovi la chiave da questo telefono</button>` : ""}
+    ${(settings.key || settings.gkey) ? `<button class="btn ghost tone-bad" data-set="forget">Rimuovi le chiavi da questo telefono</button>` : ""}
     <details class="manual"><summary><span>Dati dell'app</span></summary>
       <p class="small muted" style="margin:10px 0">Slab e portfolio sono salvati solo su questo telefono (${state.items.size} elementi). Se cancelli i dati del browser li perdi.</p>
       <div class="row"><button class="btn sm" data-set="export">Esporta backup</button><label class="btn sm" for="set-import">Importa backup</label><input type="file" id="set-import" accept="application/json" class="sr"></div>
@@ -981,14 +1047,23 @@ function openSettings() {
 document.addEventListener("click", async e => {
   const b = e.target.closest("[data-set]"); if (!b) return;
   const a = b.dataset.set, msg = $("#set-msg");
-  const readForm = () => { settings.key = $("#set-key").value.trim(); settings.model = $("#set-model").value; };
-  if (a === "save") { readForm(); saveSettings(settings); renderSync(); closeModal(); toast(settings.key ? "Impostazioni salvate" : "Chiave rimossa"); }
+  const readForm = () => {
+    settings.key = $("#set-key").value.trim(); settings.model = $("#set-model").value;
+    settings.gkey = $("#set-gkey").value.trim(); settings.gmodel = $("#set-gmodel").value.trim() || "gemini-flash-latest";
+    settings.provider = $('[data-set="prov-gemini"]').getAttribute("aria-pressed") === "true" ? "gemini" : "claude";
+  };
+  if (a === "prov-gemini" || a === "prov-claude") {
+    const g = a === "prov-gemini";
+    $('[data-set="prov-gemini"]').setAttribute("aria-pressed", g); $('[data-set="prov-claude"]').setAttribute("aria-pressed", !g);
+    $("#set-gemini").hidden = !g; $("#set-claude").hidden = g; msg.innerHTML = ""; return;
+  }
+  if (a === "save") { readForm(); saveSettings(settings); renderSync(); closeModal(); toast(activeKey() ? `Impostazioni salvate · AI: ${providerName()}` : "Salvato · manca la chiave API"); }
   else if (a === "test") {
     readForm(); msg.innerHTML = `<div class="notice info"><span class="spin"></span><span>Provo la chiave…</span></div>`;
-    try { const t = await claudeCall("Rispondi solo con: OK", { modelTier: "quick", maxTokens: 10 }); msg.innerHTML = `<div class="notice info" style="color:var(--good)">Chiave funzionante. Ricorda di premere Salva.</div>`; }
+    try { await aiCall("Rispondi solo con: OK", { modelTier: "quick", maxTokens: 16 }); msg.innerHTML = `<div class="notice info" style="color:var(--good)">Chiave ${providerName()} funzionante. Ricorda di premere Salva.</div>`; }
     catch (err) { msg.innerHTML = `<div class="notice bad">${ICON.warn}<span>${esc(aiErr(err))}</span></div>`; }
   }
-  else if (a === "forget") { settings.key = ""; saveSettings(settings); renderSync(); closeModal(); toast("Chiave rimossa da questo telefono"); }
+  else if (a === "forget") { settings.key = ""; settings.gkey = ""; saveSettings(settings); renderSync(); closeModal(); toast("Chiavi rimosse da questo telefono"); }
   else if (a === "export") {
     const blob = new Blob([JSON.stringify({ app: "gem-mint-lab", v: 1, t: Date.now(), items: Object.fromEntries(state.items) })], { type: "application/json" });
     const el = document.createElement("a"); el.href = URL.createObjectURL(blob); el.download = `gem-mint-lab-backup-${new Date().toISOString().slice(0, 10)}.json`;

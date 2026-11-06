@@ -8,7 +8,7 @@ Scanner e pre-grading AI di carte Pokémon e altri TCG, pensato per il telefono.
 
 - **Scanner dal vivo**: inquadri la carta con la fotocamera, l'app trova i bordi, scatta da sola quando tieni fermo il telefono, raddrizza la prospettiva e ritaglia la carta.
 - **Centratura automatica**: misura i bordi stampati sul fronte e sul retro e calcola i rapporti sinistra/destra e alto/basso. Puoi correggerla a mano con le maniglie e la lente.
-- **Grading AI** (Claude): subgradi di centratura, angoli, bordi e superficie con i criteri ufficiali Beckett, più il voto previsto per **PSA, Beckett e CGC** in base alle loro soglie di centratura.
+- **Grading AI** (Gemini gratis o Claude): subgradi di centratura, angoli, bordi e superficie con i criteri ufficiali Beckett, più il voto previsto per **PSA, Beckett e CGC** in base alle loro soglie di centratura.
 - **Slab digitali**: cronologia (ultimi 10) e salvati (fino a 100), con ingrandimento e condivisione come immagine.
 - **Portfolio**: valore totale con grafico, quantità, prezzi modificabili, ricerca carte con stima prezzo.
 - **Mercato**: "Da comprare" (liquidità, crescita, domanda, community, rischio, ROI stimato) e **Grade Flip** (raw contro PSA 10, BGS 10, CGC 10, con valore atteso).
@@ -19,7 +19,7 @@ Scanner e pre-grading AI di carte Pokémon e altri TCG, pensato per il telefono.
 1. Apri il link sopra con **Safari** (iPhone) o **Chrome** (Android).
 2. Installa: Safari › Condividi › **Aggiungi alla schermata Home**; Chrome › menu ⋮ › **Installa app**.
 3. Tocca **Scansiona una carta** e consenti l'accesso alla fotocamera.
-4. Per il grading AI: ingranaggio in alto › incolla la tua **chiave API di Claude** (da [console.anthropic.com](https://console.anthropic.com/settings/keys)).
+4. Per il grading AI: ingranaggio in alto › scegli **Gemini (gratis)** con una chiave da [aistudio.google.com/apikey](https://aistudio.google.com/apikey), oppure **Claude (a pagamento)** con una chiave da [console.anthropic.com](https://console.anthropic.com/settings/keys).
 
 ### Consigli per una buona scansione
 - Fondo scuro e uniforme, carta fuori dalla bustina.
@@ -28,8 +28,8 @@ Scanner e pre-grading AI di carte Pokémon e altri TCG, pensato per il telefono.
 
 ## Privacy e costi
 - Foto, slab e portfolio restano **solo sul telefono** (IndexedDB). Puoi esportare un backup da Impostazioni.
-- La chiave API resta salvata solo nel browser del telefono e viene inviata solo a `api.anthropic.com`.
-- L'API di Claude si paga a consumo, separatamente dall'abbonamento Claude. Un grading con foto fronte e retro costa pochi centesimi.
+- Le chiavi API restano salvate solo nel browser del telefono e vengono inviate solo a Google (Gemini) o ad Anthropic (Claude).
+- Gemini ha un piano gratuito con limiti di richieste al minuto e al giorno. L'API di Claude si paga a consumo con credito prepagato, separato dall'abbonamento Claude.
 
 ## Limiti
 - È un **pre-grading indicativo** da foto, non sostituisce PSA, Beckett o CGC.

@@ -352,3 +352,4 @@ html.sc-open, html.sc-open body{overflow:hidden}
 .sc-actions .btn{flex:1 1 140px}
 .sc-error p{margin:0;max-width:60ch}
 @media (prefers-reduced-motion:reduce){.sc-shutter span{transition:none}}
+.modal-box .field-wrap{flex:0 0 auto}
