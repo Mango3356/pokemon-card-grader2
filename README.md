@@ -22,7 +22,7 @@ Scanner e pre-grading AI di carte Pokémon e altri TCG, pensato per il telefono.
 4. Per il grading AI: ingranaggio in alto › scegli **Gemini (gratis)** con una chiave da [aistudio.google.com/apikey](https://aistudio.google.com/apikey), oppure **Claude (a pagamento)** con una chiave da [console.anthropic.com](https://console.anthropic.com/settings/keys).
 
 ### Consigli per una buona scansione
-- Fondo scuro e uniforme, carta fuori dalla bustina.
+- Fondo uniforme che si distingua dalla carta, carta fuori dalla bustina. Per il retro blu: tavolo chiaro o di legno, non blu.
 - Luce diffusa, senza riflessi sull'olografico (inclina leggermente il telefono se compare l'avviso).
 - Tieni la carta dentro il riquadro e il telefono fermo finché scatta.
 
@@ -34,7 +34,7 @@ Scanner e pre-grading AI di carte Pokémon e altri TCG, pensato per il telefono.
 ## Limiti
 - È un **pre-grading indicativo** da foto, non sostituisce PSA, Beckett o CGC.
 - Le soglie PSA sotto il 9 sono approssimate: PSA considera anche l'aspetto generale.
-- La centratura automatica funziona sulle carte con bordo stampato; sulle full art va regolata a mano.
+- La centratura automatica funziona sul fronte e sul retro delle carte con bordo stampato; sulle full art va regolata a mano.
 - I prezzi sono stime dell'AI, non quotazioni in tempo reale.
 
 ## Struttura

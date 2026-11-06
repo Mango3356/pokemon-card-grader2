@@ -86,7 +86,7 @@ function candidates(G, w, h, side, guide) {
       const m = Math.abs(mag[i]);
       vals.push(m); if (m > rowMax) rowMax = m;
     }
-    const thr = Math.max(28, rowMax * 0.35);
+    const thr = Math.max(22, rowMax * 0.3);
     const peaks = [];
     for (let k = 1; k < vals.length - 1; k++) {
       if (vals[k] >= thr && vals[k] >= vals[k - 1] && vals[k] >= vals[k + 1]) {
@@ -172,10 +172,31 @@ function validQuad(q, guide) {
 }
 
 /* Detect the card's outer quadrilateral in an ImageData, around an expected region. */
+/* Colour-aware gradient: Sobel on R, G, B (blurred) and keep, per pixel, the channel with the
+ * strongest response. A blue card back on a black table differs little in brightness
+ * but a lot in the blue channel. */
+function colorSobel(data, w, h) {
+  const n = w * h, out = { gx: new Float32Array(n), gy: new Float32Array(n) };
+  const ch = new Float32Array(n);
+  for (let c = 0; c < 3; c++) {
+    for (let i = 0, j = c; i < n; i++, j += 4) ch[i] = data[j];
+    const b = new Float32Array(n);
+    for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+      const i = y * w + x;
+      b[i] = (ch[i - w - 1] + ch[i - w] + ch[i - w + 1] + ch[i - 1] + ch[i] + ch[i + 1] + ch[i + w - 1] + ch[i + w] + ch[i + w + 1]) / 9;
+    }
+    const G = sobel(b, w, h);
+    for (let i = 0; i < n; i++) {
+      if (Math.abs(G.gx[i]) > Math.abs(out.gx[i])) out.gx[i] = G.gx[i];
+      if (Math.abs(G.gy[i]) > Math.abs(out.gy[i])) out.gy[i] = G.gy[i];
+    }
+  }
+  return out;
+}
+
 function detectQuad(img, guide) {
   const { width: w, height: h, data } = img;
-  const g = grayBlur(data, w, h);
-  const G = sobel(g, w, h);
+  const G = colorSobel(data, w, h);
   const L = findSide(G, w, h, "L", guide), R = findSide(G, w, h, "R", guide);
   const T = findSide(G, w, h, "T", guide), B = findSide(G, w, h, "B", guide);
   if (!L || !R || !T || !B) return null;
@@ -259,11 +280,34 @@ function detectInner(card) {
       }
     }
     found.sort((a, b) => a - b);
-    if (found.length < 8) { res[side] = null; continue; }
-    const med = found[found.length >> 1];
-    const tol = Math.max(2, dim * 0.008);
-    const agree = found.filter(v => Math.abs(v - med) <= tol).length / N;
-    res[side] = { px: med / dim, conf: agree };
+    let rowRes = null;
+    if (found.length >= 8) {
+      const med = found[found.length >> 1];
+      const tol = Math.max(2, dim * 0.008);
+      rowRes = { px: med / dim, conf: found.filter(v => Math.abs(v - med) <= tol).length / N };
+    }
+    // Averaged profile: mean colour of each line parallel to the edge (central 70%).
+    // Busy artwork (e.g. the blue swirl on card backs) averages out; the straight
+    // printed border edge stays a sharp step.
+    const prof = [];
+    for (let k = 0; k < maxD + 3; k++) {
+      let r = 0, g = 0, b = 0, m = 0;
+      for (let p = Math.round(across * 0.15); p < across * 0.85; p += 2) { const q = at(side, p, k); r += q[0]; g += q[1]; b += q[2]; m++; }
+      prof.push([r / m, g / m, b / m]);
+    }
+    const step = [];
+    for (let k = r1 + 2; k < maxD; k++) step.push([cd(prof[k - 2], prof[k + 2]), k]);
+    let profRes = null;
+    if (step.length) {
+      const sorted = step.map(v => v[0]).sort((a, b) => a - b);
+      const medStep = sorted[sorted.length >> 1] || 0.001;
+      const best = step.reduce((a, v) => v[0] > a[0] ? v : a);
+      const prom = best[0] / Math.max(1.5, medStep);
+      if (best[0] > 10 && prom > 3) profRes = { px: (best[1] + 0.5) / dim, conf: Math.min(0.9, 0.25 + prom / 20) };
+    }
+    if (rowRes && rowRes.conf >= 0.45) res[side] = rowRes;
+    else if (profRes && (!rowRes || profRes.conf > rowRes.conf)) res[side] = profRes;
+    else res[side] = rowRes;
   }
   if (!res.L || !res.R || !res.T || !res.B) return null;
   const L = res.L.px * OUT_W, R = res.R.px * OUT_W, T = res.T.px * OUT_H, B = res.B.px * OUT_H;
@@ -438,7 +482,7 @@ function loop(ts) {
     if (lastDet && ts - lastDet.t < 400) { drawOverlay(m, gd, lastDet.quad, "found"); return; }
     prevQuad = null; stableCount = 0; lastDet = null;
     drawOverlay(m, gd, null, "search");
-    status("Inquadra la carta nel riquadro, su un fondo uniforme");
+    status(side === "back" ? "Inquadra il retro nel riquadro · meglio un fondo chiaro o di legno, non blu" : "Inquadra la carta nel riquadro, su un fondo uniforme");
   }
 }
 
