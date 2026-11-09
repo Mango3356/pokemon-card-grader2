@@ -101,7 +101,7 @@ const Store = {
 
 /* ---------------- AI: Claude API with the user's own key ---------------- */
 const SETTINGS_KEY = "gml-settings-v1";
-const SET_DEFAULTS = { provider: "gemini", model: "claude-sonnet-5-5", gmodel: "gemini-flash-latest", key: "", gkey: "" };
+const SET_DEFAULTS = { engine: "local", provider: "gemini", model: "claude-sonnet-5-5", gmodel: "gemini-flash-latest", key: "", gkey: "" };
 function loadSettings() {
   try {
     const s = { ...SET_DEFAULTS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") };
@@ -114,7 +114,8 @@ const activeKey = () => settings.provider === "gemini" ? settings.gkey : setting
 const providerName = () => settings.provider === "gemini" ? "Gemini" : "Claude";
 const settings = loadSettings();
 const MODELS = { quick: "claude-haiku-5-5", complex: "claude-opus-5-5" };
-const NO_KEY = "Per usare l'AI aggiungi una chiave API in Impostazioni (ingranaggio in alto): Gemini è gratis, Claude è a pagamento. Scansione, centratura e valutazione manuale funzionano anche senza.";
+const NO_KEY = "Questa funzione usa l'AI: aggiungi una chiave in Impostazioni (ingranaggio in alto). Gemini è gratis, Claude è a pagamento. Scansione e voto delle carte funzionano anche senza.";
+const engine = () => settings.engine === "ai" && activeKey() ? "ai" : "local";
 const blobToB64 = b => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(",")[1]); r.onerror = () => rej(r.error); r.readAsDataURL(b); });
 function parseJSONLoose(t) {
   t = String(t || "").trim();
@@ -306,7 +307,9 @@ async function pickImage(file, side) {
 async function useScan(res, side) {
   if (!res || !res.blob) return false;
   await pickImage(res.blob, side);
+  if (state[side]) { state[side].cropped = !!res.cropped; state[side].inner = null; }
   if (res.cropped && res.inner && state[side]) {
+    state[side].inner = res.inner.slice();
     const img = state[side].img, sx = img.naturalWidth / 1100, sy = img.naturalHeight / 1536;
     cent.side = side; cent.img = img;
     cent.outer = [[0, 0], [img.naturalWidth, 0], [img.naturalWidth, img.naturalHeight], [0, img.naturalHeight]];
@@ -327,8 +330,7 @@ async function startScan(side, offerBack) {
   if (res.next) return startScan("back", false);
   // scan finished: grade it straight away and file it in the Wallet
   if (settings.autoAnalyze !== false && state.front) {
-    if (activeKey()) analyze();
-    else toast("Scansione pronta. Aggiungi una chiave AI (ingranaggio) per il voto automatico");
+    analyze();
   }
 }
 async function intakeFile(file, side) {
@@ -339,6 +341,102 @@ async function intakeFile(file, side) {
     if (res.retry) { $("#in-" + side).click(); return; }
     await useScan(res, side);
   } catch (e) { pickImage(file, side); }
+}
+
+
+/* ---------------- local grading (no AI, no key) ---------------- */
+const TYPE_MAP = { fuoco: "fire", fire: "fire", acqua: "water", water: "water", erba: "grass", grass: "grass", lampo: "electric", lightning: "electric", psico: "psychic", psychic: "psychic", lotta: "fighting", fighting: "fighting", oscurità: "dark", darkness: "dark", metallo: "steel", metal: "steel", drago: "dragon", dragon: "dragon", folletto: "fairy", fairy: "fairy", incolore: "normal", colorless: "normal" };
+const EURUSD = 1.08;
+function tcgPriceUSD(t) { return t?.usd || (t?.eur ? Math.round(t.eur * EURUSD * 100) / 100 : 0); }
+function applyCard(slab, c) {
+  return { ...slab, name: c.name, set: c.set, number: c.number + (c.total ? "/" + c.total : ""), game: "Pokémon",
+    type: TYPE_MAP[String(c.types?.[0] || "").toLowerCase()] || slab.type || "normal",
+    tcg: { id: c.id, lang: c.lang, usd: c.usd, eur: c.eur, image: c.image, rarity: c.rarity } };
+}
+async function analyzeLocal() {
+  if (!window.GSLocal) { state.aiError = "Il motore locale non si è caricato. Ricarica la pagina."; renderGrade(); return; }
+  if (!state.front.cropped) { state.aiError = "Per il voto serve la carta ritagliata: usa Scansiona, oppure una foto dalla galleria dove la carta si vede intera."; renderGrade(); return; }
+  state.busy = true; state.aiError = ""; state.ctl = null; renderGrade();
+  const say = t => { state.aiStep = t; renderGrade(); };
+  let read = { name: "", number: "", total: null }, ident = { best: null, options: [] }, ocrFail = false, netFail = false;
+  try {
+    try { read = await GSLocal.readCard(state.front.img, say); } catch (e) { ocrFail = true; }
+    if (read.number || read.name) { try { ident = await GSLocal.identify(read, say); } catch (e) { netFail = true; } }
+    say("Misuro bordi, angoli e superficie…");
+    await new Promise(r => setTimeout(r, 30));
+    const backOk = state.back && state.back.cropped;
+    const cond = GSLocal.condition(state.front.img, backOk ? state.back.img : null, state.front.inner, backOk ? state.back.inner : null);
+    const mf = cent.results.front?.img === state.front.img ? cent.results.front : null;
+    const mb = backOk && cent.results.back?.img === state.back.img ? cent.results.back : null;
+    const c = { fLR: mf?.lrW ?? null, fTB: mf?.tbW ?? null, bLR: mb?.lrW ?? null, bTB: mb?.tbW ?? null, measured: true };
+    const cs = centeringFromRatios(c);
+    const sub = { centering: cs ?? 9, corners: cond.corners ?? 9, edges: cond.edges ?? 9, surface: cond.surface };
+    const fin = finalScore(sub);
+    const unmeasured = [cs == null && "centratura", cond.edges == null && "bordi", cond.corners == null && "angoli"].filter(Boolean);
+    const conf = unmeasured.length >= 2 || cond.measuredSides < 3 ? "bassa" : (unmeasured.length || !backOk || cond.measuredSides < 6) ? "media" : "alta";
+    const notes = [
+      `Valutazione fatta sul telefono, senza AI: stesse foto, stesso voto.`,
+      `Bordi e angoli: ho misurato il whitening su ${cond.measuredSides} lati su ${cond.totalSides}${cond.measuredSides < cond.totalSides ? " (i bordi olografici, argentati o con riflessi non si possono misurare)" : ""}.`,
+      backOk ? "" : "Senza il retro non vedo il whitening del dorso, che è dove si nota di più: scansiona anche il retro per un voto più affidabile.",
+      unmeasured.length ? `Non misurabile da questa foto: ${unmeasured.join(", ")} (messo 9 come valore prudente).` : "",
+      "La superficie è una stima: controlla graffi e pieghe inclinando la carta sotto una luce.",
+    ].filter(Boolean).join(" ");
+    let slab = {
+      kind: "slab", engine: "local", t: Date.now(), saved: false, manual: false,
+      name: read.name || "Carta non riconosciuta", set: "", number: read.number ? read.number + (read.total ? "/" + read.total : "") : "", game: "Pokémon", type: "normal",
+      ...sub, final: fin, label: gradeLabel(fin), cent: c.fLR != null ? c : null, ratio: "", confidence: conf,
+      defects: cond.defects.slice(0, 8), note: notes, metrics: cond.faces,
+      options: ident.options.map(o => ({ id: o.id, lang: o.lang, name: o.name, set: o.set, number: o.number, total: o.total })),
+      front: state.front.thumb, back: state.back?.thumb || ""
+    };
+    if (ident.best) slab = applyCard(slab, ident.best);
+    const id = uid("slab");
+    Store.put(id, slab); pruneWallet(); updateConsensus(id); bumpCounter();
+    state.result = id;
+    toast(ident.best ? `${ident.best.name} aggiunta al Wallet` : "Aggiunta al Wallet · carta da confermare");
+    if (!ident.best) state.aiError = ocrFail ? "Non sono riuscito a caricare il lettore di testo (serve internet la prima volta). Il voto c'è: scegli tu la carta con «Cambia carta»."
+      : netFail ? "Non riesco a contattare il database delle carte. Il voto c'è: riprova più tardi o scegli la carta con «Cambia carta»."
+      : "Non ho riconosciuto la carta: il voto c'è, scegli tu quale carta è con «Cambia carta».";
+  } catch (e) {
+    state.aiError = "Analisi non riuscita: " + (e?.message || e);
+  } finally {
+    state.busy = false; state.aiStep = ""; renderAll();
+    if (state.result) $("#result").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
+  }
+}
+/* pick / correct which card it is */
+function openCardPicker(slabId) {
+  const s = Store.get(slabId); if (!s) return;
+  state.pickFor = slabId; state.pickRes = (s.options || []).map(o => ({ ...o, image: "" }));
+  openModal(`<div class="hdr-row"><h2>Quale carta è?</h2><button class="icon-btn" data-close aria-label="Chiudi">✕</button></div>
+    <div class="row"><input id="pick-q" class="field" style="flex:1 1 180px" placeholder="Nome, es. Reshiram" value="${esc(s.engine === "local" && !s.tcg ? s.name.replace("Carta non riconosciuta", "") : s.name)}"><button class="btn primary" data-act="pick-search">Cerca</button></div>
+    <div id="pick-list" class="list"></div>
+    <p class="small muted" style="margin:0">Dati e prezzi da TCGdex, database gratuito delle carte Pokémon.</p>`);
+  renderPicker();
+}
+function renderPicker() {
+  const box = $("#pick-list"); if (!box) return;
+  box.innerHTML = state.pickBusy ? `<div class="notice info"><span class="spin"></span><span>Cerco…</span></div>`
+    : state.pickErr ? `<div class="notice bad">${ICON.warn}<span>${esc(state.pickErr)}</span></div>`
+    : (state.pickRes || []).length ? state.pickRes.map((r, i) => `<button class="pick-item" data-act="pick-choose" data-i="${i}">${r.image ? `<img src="${esc(r.image)}" alt="" loading="lazy">` : `<span class="pick-ph"></span>`}<span><b>${esc(r.name)}</b><span class="muted small">${esc(r.set || "")} ${esc(r.number || "")}${r.total ? "/" + r.total : ""}</span></span></button>`).join("")
+    : `<div class="small muted">Cerca per nome: poi scegli la carta con lo stesso disegno e numero.</div>`;
+}
+async function pickSearch() {
+  const q = ($("#pick-q")?.value || "").trim(); if (!q) return;
+  state.pickBusy = true; state.pickErr = ""; renderPicker();
+  try { state.pickRes = await GSLocal.search(q); if (!state.pickRes.length) state.pickErr = "Nessuna carta con questo nome."; }
+  catch (e) { state.pickErr = "Database delle carte non raggiungibile. Controlla la connessione."; }
+  state.pickBusy = false; renderPicker();
+}
+async function pickChoose(i) {
+  const r = state.pickRes[i], s = Store.get(state.pickFor); if (!r || !s) return;
+  state.pickBusy = true; renderPicker();
+  try {
+    const c = await GSLocal.card(r.id, r.lang);
+    if (c) { Store.put(state.pickFor, applyCard(s, c)); updateConsensus(state.pickFor); if (state.result === state.pickFor) state.aiError = ""; closeModal(); renderAll(); toast(`Carta: ${c.name}`); return; }
+    state.pickErr = "Carta non trovata.";
+  } catch (e) { state.pickErr = "Database delle carte non raggiungibile."; }
+  state.pickBusy = false; renderPicker();
 }
 
 /* ---------------- grading math ---------------- */
@@ -443,6 +541,7 @@ Se non hai il retro, "centering_back": null.
 
 async function analyze() {
   if (!state.front || state.busy) return;
+  if (engine() === "local") return analyzeLocal();
   const ai = await getAI();
   if (!ai) { state.aiError = NO_KEY; renderGrade(); return; }
   if (!ai.images) { state.aiError = aiErr({ code: "images_unavailable" }); renderGrade(); return; }
@@ -535,11 +634,15 @@ function renderGrade() {
     $("#slot-" + side).classList.toggle("has", !!state[side]);
   }
   const btn = $("#btn-analyze");
-  btn.disabled = !state.front;
+  const loc = engine() === "local";
+  $("#accuracy-wrap").hidden = loc;
+  btn.disabled = !state.front || (state.busy && loc);
   btn.innerHTML = state.busy
-    ? `<span class="spin" aria-hidden="true"></span><span>Annulla analisi</span>`
-    : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 16v-4M12 16V8M16 16v-6"/></svg><span>Analizza con AI</span>`;
-  $("#ai-state").innerHTML = state.busy
+    ? `<span class="spin" aria-hidden="true"></span><span>${loc ? "Analisi in corso…" : "Annulla analisi"}</span>`
+    : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 16v-4M12 16V8M16 16v-6"/></svg><span>${loc ? "Valuta la carta" : "Analizza con AI"}</span>`;
+  $("#ai-state").innerHTML = state.busy && loc
+    ? `<div class="notice info"><span class="spin" aria-hidden="true"></span><span><b>${esc(state.aiStep || "Preparo l'analisi…")}</b></span></div>`
+    : state.busy
     ? `<div class="notice info"><span class="spin" aria-hidden="true"></span><span>${state.aiStep ? `<b>${state.aiStep}</b> · ` : ""}${providerName()} sta esaminando centratura, angoli, bordi e superficie. Ci vogliono di solito 15–40 secondi${state.aiStep ? " per analisi" : ""}.</span></div>`
     : state.aiError ? `<div class="notice bad">${ICON.warn}<span>${esc(state.aiError)}</span></div>` : "";
   const r = state.result && Store.get(state.result);
@@ -555,7 +658,9 @@ function resultHTML(r) {
   const tiles = [["centering", "Centratura"], ["surface", "Superficie"], ["edges", "Bordi"], ["corners", "Angoli"]]
     .map(([k, l]) => `<div class="sub">${ringSVG(r[k], 46, 6)}<div><div class="k">${l}</div><div class="v">${f1(r[k])}</div></div></div>`).join("");
   return `<div class="panel" style="display:flex;flex-direction:column;gap:14px">
-    <div class="result-head"><span class="eyebrow">Carta rilevata</span><h2>${esc(r.name)}${r.number ? " " + esc(r.number) : ""}</h2>${r.set ? `<span class="muted small">${esc(r.set)}${r.game ? " · " + esc(r.game) : ""}</span>` : ""}</div>
+    <div class="result-head"><span class="eyebrow">${r.engine === "local" ? "Valutata sul telefono · senza AI" : "Carta rilevata"}</span><h2>${esc(r.name)}${r.number ? " " + esc(r.number) : ""}</h2>${r.set ? `<span class="muted small">${esc(r.set)}${r.game ? " · " + esc(r.game) : ""}</span>` : ""}
+      ${r.tcg ? `<div class="tcg-prices">${r.tcg.usd ? `<span>TCGplayer <b>${fmt$(r.tcg.usd)}</b></span>` : ""}${r.tcg.eur ? `<span>Cardmarket <b>€${Number(r.tcg.eur).toFixed(2)}</b></span>` : ""}${!r.tcg.usd && !r.tcg.eur ? `<span class="muted">Prezzo non disponibile</span>` : ""}</div>` : ""}
+      ${r.engine === "local" ? `<button class="btn sm ghost" data-act="change-card" data-id="${r.id}" style="align-self:center">${r.tcg ? "Non è questa? Cambia carta" : "Scegli la carta"}</button>` : ""}</div>
     <div class="final">
       <div class="final-ring">${ringSVG(r.final, 124, 12)}<div class="final-num"><div class="n">${f1(r.final)}</div><div class="l">SU 10</div></div></div>
       <div class="final-info"><div class="eyebrow">Voto finale · scala Beckett</div><div class="final-label">${esc(r.label)}</div>${r.confidence ? `<div class="conf-pill"><i></i>Affidabilità ${esc(r.confidence)}</div>` : ""}</div>
@@ -564,7 +669,7 @@ function resultHTML(r) {
     ${r.consensus && r.consensus.n > 1 ? `<div class="notice info cons">${ICON.info}<span>Hai scansionato questa carta <b>${r.consensus.n} volte</b> (voti da ${f1(r.consensus.min)} a ${f1(r.consensus.max)}). Voto consolidato: <b>${f1(r.consensus.final)}</b> · ${esc(gradeLabel(r.consensus.final))}</span></div>` : ""}${r.reads > 1 ? `<div class="small muted">Mediana di ${r.reads} analisi indipendenti.</div>` : ""}
     ${companyHTML(r)}
     ${centLine(r) ? `<div class="small muted">${centLine(r)}</div>` : ""}
-    <div class="note"><h3>${ICON.spark}${r.manual ? "Nota" : "Nota AI"}</h3><p>${esc(r.note)}</p>${r.defects?.length ? `<ul class="defects">${r.defects.map(d => `<li>${esc(d)}</li>`).join("")}</ul>` : ""}</div>
+    <div class="note"><h3>${ICON.spark}${r.manual || r.engine === "local" ? "Nota" : "Nota AI"}</h3><p>${esc(r.note)}</p>${r.defects?.length ? `<ul class="defects">${r.defects.map(d => `<li>${esc(d)}</li>`).join("")}</ul>` : ""}</div>
     <div class="row">
       <button class="btn sm" data-act="open-slab" data-id="${r.id}">Apri nel Wallet</button>
       <button class="btn sm" data-act="to-center">Misura centratura</button>
@@ -844,15 +949,20 @@ function addHolding(o) {
   if (ex) Store.put(ex.id, { ...strip(ex), qty: (ex.qty || 0) + 1 });
   else Store.put(uid("hold"), { kind: "holding", t: Date.now(), name: o.name, set: o.set || "", number: o.number || "", game: o.game || "Pokémon", variant: o.variant || "Normal", type: o.type || "normal", price: Number(o.price) || 0, qty: 1,
     ...(o.graded ? { graded: { company: o.graded.company, grade: o.graded.grade, price: Number(o.graded.price) || 0 } } : {}),
-    ...(o.slabId ? { slabId: o.slabId } : {}), ...(o.img ? { img: o.img } : {}), ...(o.example ? { example: true } : {}) });
+    ...(o.slabId ? { slabId: o.slabId } : {}), ...(o.img ? { img: o.img } : {}), ...(o.tcg ? { tcg: o.tcg } : {}), ...(o.eur ? { eur: o.eur } : {}), ...(o.example ? { example: true } : {}) });
   recordSnapshot(); renderAll(); toast("Aggiunto al portfolio");
 }
 /* Wallet → portfolio: raw price and the PSA price at the grade GradScan predicts. */
 async function walletToPortfolio(id) {
   const s = Store.get(id); if (!s || holdingForSlab(id)) return;
   const psa = companyGrades(s).psa.g;
-  const base = { name: s.name, set: s.set, number: s.number, game: s.game, type: s.type, variant: "Raw", slabId: id, img: s.front || "" };
+  const base = { name: s.name, set: s.set, number: s.number, game: s.game, type: s.type, variant: "Raw", slabId: id, img: s.front || "", ...(s.tcg ? { tcg: { id: s.tcg.id, lang: s.tcg.lang }, eur: s.tcg.eur || null } : {}) };
   const ai = await getAI();
+  if (s.tcg && !ai) {
+    let t = s.tcg; try { state.pfBusy = id; renderSlabs(); t = (await GSLocal.card(s.tcg.id, s.tcg.lang)) || t; } catch (e) {}
+    addHolding({ ...base, eur: t.eur || null, price: tcgPriceUSD(t), graded: { company: "PSA", grade: psa, price: 0 } });
+    state.pfBusy = null; renderAll(); toast("Aggiunto con il prezzo raw da TCGdex. Il prezzo PSA inseriscilo tu (es. da eBay venduti)"); return;
+  }
   if (!ai) { addHolding({ ...base, price: 0, graded: { company: "PSA", grade: psa, price: 0 } }); toast("Aggiunto: inserisci tu i prezzi (manca la chiave AI)"); return; }
   state.pfBusy = id; renderSlabs();
   try {
@@ -863,7 +973,7 @@ Stima con le tue conoscenze di mercato più recenti (non hai prezzi in tempo rea
 - "psa10": gradata PSA 10.
 Se non conosci bene la carta, stima con prudenza e metti "confidence":"bassa".
 Rispondi solo con JSON: {"raw":12.5,"psa":45,"psa10":180,"confidence":"alta|media|bassa"}`, { modelTier: "default", maxTokens: 400 });
-    addHolding({ ...base, price: Number(r?.raw) || 0, graded: { company: "PSA", grade: psa, price: Number(r?.psa) || 0 } });
+    addHolding({ ...base, price: s.tcg ? (tcgPriceUSD(s.tcg) || Number(r?.raw) || 0) : (Number(r?.raw) || 0), graded: { company: "PSA", grade: psa, price: Number(r?.psa) || 0 } });
   } catch (e) {
     addHolding({ ...base, price: 0, graded: { company: "PSA", grade: psa, price: 0 } });
     toast("Aggiunto senza prezzi: " + aiErr(e));
@@ -933,7 +1043,7 @@ function renderPortfolio() {
       ${h.img ? `<img class="hold-img" src="${h.img}" alt="">` : artHTML(h)}
       <div class="hold-info"><div class="nm">${esc(h.name)}${h.number ? ` <span class="muted mono small">${esc(h.number)}</span>` : ""}</div>
         <div class="meta">${esc(h.game)}${h.set ? " · " + esc(h.set) : ""}</div>
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${state.editPrice === h.id ? `<input class="price-edit" id="price-${h.id}" inputmode="decimal" value="${Number(h.price).toFixed(2)}" aria-label="Prezzo in dollari"><button class="btn sm" data-act="price-ok" data-id="${h.id}">OK</button>` : `<button class="price-pill" data-act="price-edit" data-id="${h.id}" aria-label="Modifica prezzo">${fmt$(h.price)}</button>`}<span class="small muted">${h.graded ? "Raw" : esc(h.variant)}</span>${h.example ? '<span class="tag-ex">esempio</span>' : ""}</div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${state.editPrice === h.id ? `<input class="price-edit" id="price-${h.id}" inputmode="decimal" value="${Number(h.price).toFixed(2)}" aria-label="Prezzo in dollari"><button class="btn sm" data-act="price-ok" data-id="${h.id}">OK</button>` : `<button class="price-pill" data-act="price-edit" data-id="${h.id}" aria-label="Modifica prezzo">${fmt$(h.price)}</button>`}<span class="small muted">${h.graded ? "Raw" : esc(h.variant)}${h.eur ? ` · Cardmarket €${Number(h.eur).toFixed(2)}` : ""}</span>${h.example ? '<span class="tag-ex">esempio</span>' : ""}</div>
         ${h.graded ? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${state.editGPrice === h.id ? `<input class="price-edit" id="gprice-${h.id}" inputmode="decimal" value="${Number(h.graded.price).toFixed(2)}" aria-label="Prezzo gradata in dollari"><button class="btn sm" data-act="gprice-ok" data-id="${h.id}">OK</button>` : `<button class="price-pill graded" data-act="gprice-edit" data-id="${h.id}" aria-label="Modifica prezzo ${esc(h.graded.company)} ${h.graded.grade}">${fmt$(h.graded.price)}</button>`}<span class="small grade-tag">${esc(h.graded.company)} ${h.graded.grade} previsto</span>${h.price > 0 && h.graded.price > 0 ? `<span class="small ${h.graded.price >= h.price ? "up" : "down"}">${h.graded.price >= h.price ? "+" : "−"}${fmt$0(Math.abs(h.graded.price - h.price))}</span>` : ""}</div>` : ""}</div>
       <div class="stepper">${state.confirmHold === h.id ? `<button data-act="hold-del" data-id="${h.id}" style="width:auto;padding:0 10px;font-size:13px;color:var(--bad)">Rimuovi</button>` : `<button data-act="qty-" data-id="${h.id}" aria-label="Meno">−</button><span>${h.qty}</span><button data-act="qty+" data-id="${h.id}" aria-label="Più">+</button>`}</div>
     </div>`).join("")
@@ -956,13 +1066,21 @@ function renderSearch() {
   const b = $("#ps-results");
   b.innerHTML = state.searchBusy ? `<div class="notice info"><span class="spin"></span><span>Cerco e stimo il prezzo…</span></div>`
     : state.searchErr ? `<div class="notice bad">${ICON.warn}<span>${esc(state.searchErr)}</span></div>`
-    : state.searchRes.map((r, i) => `<div class="hold">${artHTML(r)}<div class="hold-info"><div class="nm">${esc(r.name)} ${r.number ? `<span class="muted mono small">${esc(r.number)}</span>` : ""}</div><div class="meta">${esc(r.set || "")} · ${esc(r.variant || "Normal")}</div><span class="price-pill" style="align-self:flex-start">~${fmt$(r.price)}</span></div><button class="btn sm primary" data-act="add-res" data-i="${i}">Aggiungi</button></div>`).join("");
+    : state.searchRes.map((r, i) => `<div class="hold">${r.image ? `<img class="hold-img" src="${esc(r.image)}" alt="" loading="lazy">` : artHTML(r)}<div class="hold-info"><div class="nm">${esc(r.name)} ${r.number ? `<span class="muted mono small">${esc(r.number)}</span>` : ""}</div><div class="meta">${r.tcg ? esc(r.id) : esc(r.set || "") + " · " + esc(r.variant || "Normal")}</div>${r.price != null ? `<span class="price-pill" style="align-self:flex-start">~${fmt$(r.price)}</span>` : ""}</div><button class="btn sm primary" data-act="add-res" data-i="${i}">Aggiungi</button></div>`).join("");
 }
 async function doSearch() {
   const q = $("#ps-q").value.trim(); if (!q) { toast("Scrivi il nome di una carta"); return; }
-  const ai = await getAI(); if (!ai) { state.searchErr = NO_KEY; renderSearch(); return; }
-  state.searchBusy = true; state.searchErr = ""; renderSearch();
   const game = $("#ps-game").value;
+  state.searchBusy = true; state.searchErr = ""; renderSearch();
+  if (/pok/i.test(game) && window.GSLocal) {
+    try {
+      const list = await GSLocal.search(q);
+      state.searchRes = list.slice(0, 12).map(x => ({ ...x, game: "Pokémon", set: "", variant: "Normal", price: null, tcg: { id: x.id, lang: x.lang } }));
+      if (!state.searchRes.length) state.searchErr = "Nessuna carta trovata con questo nome.";
+      state.searchBusy = false; renderSearch(); return;
+    } catch (e) { /* fall back to AI below */ }
+  }
+  const ai = await getAI(); if (!ai) { state.searchErr = /pok/i.test(game) ? "Database delle carte non raggiungibile. Controlla la connessione." : NO_KEY; state.searchBusy = false; renderSearch(); return; }
   try {
     const r = await ai.s.json(`Trova fino a 5 carte singole o prodotti sigillati realmente esistenti del gioco "${game}" che corrispondono alla ricerca: "${q}". Per ognuno stima il prezzo di mercato medio attuale in USD in condizioni raw Near Mint (o sigillato), usando le tue conoscenze; non hai dati in tempo reale.
 Rispondi solo con un array JSON: [{"name":"Umbreon VMAX","set":"Evolving Skies","number":"215/203","variant":"Holo","type":"dark","price":1290.0}]. variant tra Normal, Holo, Reverse Holo, Sealed. type tra fire, water, grass, electric, psychic, fighting, dark, steel, dragon, fairy, normal.`, { modelTier: "quick" });
@@ -972,9 +1090,15 @@ Rispondi solo con un array JSON: [{"name":"Umbreon VMAX","set":"Evolving Skies",
   state.searchBusy = false; renderSearch();
 }
 async function refreshPrices() {
-  const hs = holdings(); if (!hs.length) return;
-  const ai = await getAI(); if (!ai) { toast("Aggiungi la chiave API in Impostazioni, oppure correggi i prezzi a mano"); return; }
+  const all = holdings(); if (!all.length) return;
   state.refreshBusy = true; renderPortfolio();
+  let n0 = 0;
+  for (const h of all.filter(h => h.tcg)) {
+    try { const t = await GSLocal.card(h.tcg.id, h.tcg.lang); if (t && (t.usd || t.eur)) { Store.put(h.id, { ...strip(h), price: tcgPriceUSD(t), eur: t.eur || null }); n0++; } } catch (e) {}
+  }
+  const ai = await getAI();
+  const hs = ai ? holdings() : [];
+  if (!ai) { recordSnapshot(); toast(`${n0} prezzi aggiornati da TCGdex${all.some(h => !h.tcg) ? " · per le altre carte serve una chiave AI" : ""}`); state.refreshBusy = false; renderAll(); return; }
   try {
     const list = hs.map((h, i) => `${i}. ${h.game} — ${h.name} ${h.number} (${h.set}, ${h.graded ? "raw" : h.variant})${h.graded ? ` + prezzo gradata ${h.graded.company} ${h.graded.grade}` : ""}`).join("\n");
     const r = await ai.s.json(`Stima il prezzo di mercato medio in USD per ciascun elemento, con le tue conoscenze di mercato più recenti: "price" = raw Near Mint (o sigillato); "graded" = solo dove è chiesto il prezzo della versione gradata a quel voto.\n${list}\nRispondi solo con un array JSON [{"i":0,"price":12.5,"graded":40}].`, { modelTier: "default" });
@@ -986,7 +1110,7 @@ async function refreshPrices() {
       if (h.graded && g > 0) upd.graded = { ...h.graded, price: Math.round(g * 100) / 100 };
       if (p > 0 || g > 0) { Store.put(h.id, upd); n++; }
     });
-    recordSnapshot(); toast(`${n} prezzi aggiornati`);
+    recordSnapshot(); toast(`${n + n0} prezzi aggiornati`);
   } catch (e) { toast(aiErr(e)); }
   state.refreshBusy = false; renderAll();
 }
@@ -1138,7 +1262,13 @@ const HELP = {
 function openSettings() {
   const g = settings.provider === "gemini";
   openModal(`<div class="hdr-row"><h2>Impostazioni</h2><button class="icon-btn" data-close aria-label="Chiudi">✕</button></div>
-    <div class="field-wrap"><label>Intelligenza artificiale</label>
+    <div class="field-wrap"><label>Come valutare le carte</label>
+      <div class="seg" role="group" aria-label="Motore di valutazione">
+        <button data-set="eng-local" aria-pressed="${settings.engine !== "ai"}">Sul telefono · gratis</button>
+        <button data-set="eng-ai" aria-pressed="${settings.engine === "ai"}">Con AI</button>
+      </div></div>
+    <p class="small muted" style="margin:0">Sul telefono: niente chiavi né costi, riconosce la carta e misura centratura, bordi e angoli; la superficie è una stima. Con AI: giudizio più completo della superficie, serve una chiave. La chiave AI serve comunque per Mercato e per stimare il prezzo PSA.</p>
+    <div class="field-wrap"><label>Chiave AI (facoltativa)</label>
       <div class="seg" role="group" aria-label="Fornitore AI">
         <button data-set="prov-gemini" aria-pressed="${g}">Gemini · gratis</button>
         <button data-set="prov-claude" aria-pressed="${!g}">Claude · pagamento</button>
@@ -1162,7 +1292,7 @@ function openSettings() {
           <option value="claude-haiku-5-5" ${settings.model === "claude-haiku-5-5" ? "selected" : ""}>Claude Haiku 5.5 · più veloce ed economico</option>
         </select></div>
     </div>
-    <label class="check-row"><input type="checkbox" id="set-auto" ${settings.autoAnalyze !== false ? "checked" : ""}><span>Analizza subito dopo la scansione e aggiungi al Wallet</span></label>
+    <label class="check-row"><input type="checkbox" id="set-auto" ${settings.autoAnalyze !== false ? "checked" : ""}><span>Valuta subito dopo la scansione e aggiungi al Wallet</span></label>
     <p class="small muted" style="margin:0">Le chiavi restano salvate solo su questo telefono e vengono inviate solo a Google (Gemini) o ad Anthropic (Claude).</p>
     <div id="set-msg"></div>
     <div class="row"><button class="btn primary" data-set="save">Salva</button><button class="btn" data-set="test">Prova la chiave</button></div>
@@ -1189,13 +1319,18 @@ document.addEventListener("click", async e => {
     settings.gkey = $("#set-gkey").value.trim(); settings.gmodel = $("#set-gmodel").value.trim() || "gemini-flash-latest";
     settings.provider = $('[data-set="prov-gemini"]').getAttribute("aria-pressed") === "true" ? "gemini" : "claude";
     settings.autoAnalyze = $("#set-auto").checked;
+    settings.engine = $('[data-set="eng-ai"]').getAttribute("aria-pressed") === "true" ? "ai" : "local";
   };
+  if (a === "eng-local" || a === "eng-ai") {
+    $('[data-set="eng-local"]').setAttribute("aria-pressed", a === "eng-local"); $('[data-set="eng-ai"]').setAttribute("aria-pressed", a === "eng-ai"); return;
+  }
   if (a === "prov-gemini" || a === "prov-claude") {
     const g = a === "prov-gemini";
     $('[data-set="prov-gemini"]').setAttribute("aria-pressed", g); $('[data-set="prov-claude"]').setAttribute("aria-pressed", !g);
     $("#set-gemini").hidden = !g; $("#set-claude").hidden = g; msg.innerHTML = ""; return;
   }
-  if (a === "save") { readForm(); geminiWorking = ""; geminiList = null; saveSettings(settings); renderSync(); closeModal(); toast(activeKey() ? `Impostazioni salvate · AI: ${providerName()}` : "Salvato · manca la chiave API"); }
+  if (a === "save") { readForm(); geminiWorking = ""; geminiList = null; saveSettings(settings); renderSync(); closeModal(); renderAll();
+    toast(settings.engine === "ai" && !activeKey() ? "Salvato · senza chiave AI valuto sul telefono" : engine() === "local" ? "Salvato · valutazione sul telefono" : `Salvato · valutazione con ${providerName()}`); }
   else if (a === "test") {
     readForm(); geminiWorking = ""; geminiList = null; msg.innerHTML = `<div class="notice info"><span class="spin"></span><span>Provo la chiave…</span></div>`;
     try { await aiCall("Rispondi solo con: OK", { modelTier: "quick", maxTokens: 16 }); msg.innerHTML = `<div class="notice info" style="color:var(--good)">Chiave ${providerName()} funzionante. Ricorda di premere Salva.</div>`; }
@@ -1224,6 +1359,9 @@ document.addEventListener("click", e => {
     case "open-slab": renderSlabs(); go("slabs"); break;
     case "to-center": useSideImage("front"); go("centering"); break;
     case "wallet-to-pf": walletToPortfolio(id); break;
+    case "change-card": openCardPicker(id); break;
+    case "pick-search": pickSearch(); break;
+    case "pick-choose": pickChoose(+a.dataset.i); break;
     case "to-portfolio-view": state.pTab = "pf"; renderPortfolio(); go("portfolio"); break;
     case "gprice-edit": state.editGPrice = id; renderPortfolio(); { const inp = $("#gprice-" + id); inp?.focus(); inp?.select(); } break;
     case "gprice-ok": { const v = parseFloat(String($("#gprice-" + id)?.value || "").replace(",", ".")); if (s && s.graded && v >= 0) { Store.put(id, { ...s, graded: { ...s.graded, price: Math.round(v * 100) / 100 } }); } state.editGPrice = null; renderPortfolio(); break; }
@@ -1251,11 +1389,13 @@ document.addEventListener("click", e => {
     case "load-ex": loadExamplePortfolio(); break;
     case "clear-ex": clearExamples(); break;
     case "refresh-prices": refreshPrices(); break;
-    case "add-res": { const x = state.searchRes[+a.dataset.i]; if (x) addHolding(x); break; }
+    case "add-res": { const x = state.searchRes[+a.dataset.i]; if (!x) break;
+      if (x.tcg && window.GSLocal) { GSLocal.card(x.tcg.id, x.tcg.lang).then(t => addHolding({ name: x.name, set: t?.set || "", number: t ? t.number + (t.total ? "/" + t.total : "") : x.number, game: "Pokémon", variant: "Raw", type: TYPE_MAP[String(t?.types?.[0] || "").toLowerCase()] || "normal", price: tcgPriceUSD(t), eur: t?.eur || null, img: x.image, tcg: x.tcg })).catch(() => addHolding({ ...x, price: 0, img: x.image })); }
+      else addHolding(x); break; }
     case "mk-add": { const src = a.dataset.src === "worth" ? (state.worth || EX_WORTH) : (state.flip || EX_FLIP); const x = src[+a.dataset.i]; if (x) addHolding({ name: x.name, set: x.set, number: x.number, game: x.game || "Pokémon", variant: "Normal", type: x.type, price: x.raw }); break; }
   }
 });
-document.addEventListener("keydown", e => { if (e.key === "Enter" && e.target.id.startsWith("gprice-")) { document.querySelector(`[data-act="gprice-ok"][data-id="${e.target.id.slice(7)}"]`)?.click(); return; } if (e.key === "Enter" && e.target.classList.contains("price-edit")) { const id = e.target.id.slice(6); document.querySelector(`[data-act="price-ok"][data-id="${id}"]`)?.click(); } });
+document.addEventListener("keydown", e => { if (e.key === "Enter" && e.target.id === "pick-q") { pickSearch(); return; } if (e.key === "Enter" && e.target.id.startsWith("gprice-")) { document.querySelector(`[data-act="gprice-ok"][data-id="${e.target.id.slice(7)}"]`)?.click(); return; } if (e.key === "Enter" && e.target.classList.contains("price-edit")) { const id = e.target.id.slice(6); document.querySelector(`[data-act="price-ok"][data-id="${id}"]`)?.click(); } });
 
 for (const side of ["front", "back"]) {
   $("#in-" + side).addEventListener("change", e => { const f = e.target.files[0]; e.target.value = ""; if (f) intakeFile(f, side); });

@@ -17,6 +17,14 @@ Scanner e pre-grading AI di carte Pokémon e altri TCG, pensato per il telefono.
 ## Anteprima sul PC
 Apri https://mango3356.github.io/pokemon-card-grader2/iphone.html: l'app gira dentro un iPhone simulato e la puoi scorrere e usare con il mouse.
 
+## Valutazione senza AI (predefinita)
+Funziona gratis e senza chiavi, direttamente sul telefono:
+- **riconoscimento**: legge nome e numero della carta (OCR Tesseract.js) e la cerca in [TCGdex](https://tcgdex.dev), database Pokémon gratuito, con prezzi TCGplayer e Cardmarket;
+- **centratura**: misurata dallo scanner su fronte e retro;
+- **bordi e angoli**: misura il whitening lungo i bordi e negli angoli (i bordi olografici o argentati vengono segnalati come non misurabili);
+- **superficie**: stima prudente da foto.
+Stesse foto, stesso voto. Con una chiave AI (facoltativa) si sbloccano Mercato e la stima del prezzo PSA.
+
 ## Come usarla sul telefono
 
 1. Apri il link sopra con **Safari** (iPhone) o **Chrome** (Android).

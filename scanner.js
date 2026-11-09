@@ -542,6 +542,13 @@ function analyzeCard(card, detected, original) {
 
 /* Still photo (gallery): try to find the card anywhere near the middle. */
 async function stillToResult(img) {
+  // already cropped to the card (scanner apps, screenshots): exact card proportions → use it whole
+  const arIn = img.naturalWidth / img.naturalHeight;
+  if (Math.abs(arIn - CARD_RATIO) < 0.012) {
+    const f0 = document.createElement("canvas"); f0.width = img.naturalWidth; f0.height = img.naturalHeight; f0.getContext("2d").drawImage(img, 0, 0);
+    const r = analyzeCard(warp(f0, [[0, 0], [f0.width, 0], [f0.width, f0.height], [0, f0.height]]), true, f0);
+    r.precropped = true; return r;
+  }
   const sc = ANALYSIS_MAX / Math.max(img.naturalWidth, img.naturalHeight);
   const aw = Math.round(img.naturalWidth * sc), ah = Math.round(img.naturalHeight * sc);
   const c = document.createElement("canvas"); c.width = aw; c.height = ah;
@@ -555,7 +562,16 @@ async function stillToResult(img) {
   }
   const full = document.createElement("canvas"); full.width = img.naturalWidth; full.height = img.naturalHeight;
   full.getContext("2d").drawImage(img, 0, 0);
-  if (!best) return { card: null, detected: false, original: full, inner: null, q: null };
+  if (!best) {
+    // a photo that is already cropped to the card (scan app, screenshot): use it whole
+    const ar = img.naturalWidth / img.naturalHeight;
+    if (Math.abs(ar - CARD_RATIO) < 0.035) {
+      const w = img.naturalWidth, h = img.naturalHeight;
+      const r = analyzeCard(warp(full, [[0, 0], [w, 0], [w, h], [0, h]]), true, full);
+      r.precropped = true; return r;
+    }
+    return { card: null, detected: false, original: full, inner: null, q: null };
+  }
   const quad = best.quad.map(p => [p[0] / sc, p[1] / sc]);
   return analyzeCard(warp(full, quad), true, full);
 }
@@ -573,7 +589,8 @@ function showReview(r) {
     x.beginPath(); r.inner.inner.forEach((p, i) => i ? x.lineTo(p[0], p[1]) : x.moveTo(p[0], p[1])); x.closePath(); x.stroke();
   }
   const chips = [];
-  if (r.card) chips.push(r.detected ? `<span class="sc-chip ok">Bordi rilevati e raddrizzati</span>` : `<span class="sc-chip warn">Bordi non trovati: ritagliata sul riquadro</span>`);
+  if (r.precropped) chips.push(`<span class="sc-chip ok">Foto già ritagliata sulla carta</span>`);
+  else if (r.card) chips.push(r.detected ? `<span class="sc-chip ok">Bordi rilevati e raddrizzati</span>` : `<span class="sc-chip warn">Bordi non trovati: ritagliata sul riquadro</span>`);
   else chips.push(`<span class="sc-chip warn">Carta non trovata nella foto: userò la foto intera</span>`);
   if (r.inner) chips.push(r.inner.reliable ? `<span class="sc-chip ok">Centratura ${ratio(r.inner.lr)} · ${ratio(r.inner.tb)}</span>`
     : `<span class="sc-chip warn">Centratura incerta${r.inner.corrected ? ` (stimata ${ratio(r.inner.lr)} · ${ratio(r.inner.tb)})` : ""}: controllala nello strumento</span>`);
@@ -609,7 +626,9 @@ async function onClick(e) {
   else if (a === "torch") { try { torchOn = !torchOn; await track.applyConstraints({ advanced: [{ torch: torchOn }] }); b.classList.toggle("on", torchOn); } catch (err) { torchOn = false; } }
   else if (a === "retry") { if (!stream) { finish({ retry: true }); return; } hideReview(); if (!raf) raf = requestAnimationFrame(loop); }
   else if (a === "use" || a === "use-next" || a === "use-orig") {
+    const owner = resolveOpen;
     const res = await toResult(pending, a === "use-orig");
+    if (resolveOpen !== owner) return;   // a newer scan started meanwhile
     finish({ ...res, next: a === "use-next" });
   }
 }

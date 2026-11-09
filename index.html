@@ -41,10 +41,10 @@
 <section class="view" id="v-grade" data-view="grade">
   <button class="scan-hero" id="btn-scan">
     <span class="scan-hero-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><path d="M4 12h16"/></svg></span>
-    <span class="scan-hero-txt"><b>Scansiona una carta</b><span>Inquadra la carta: la rilevo, la raddrizzo e misuro la centratura da solo</span></span>
+    <span class="scan-hero-txt"><b>Scansiona una carta</b><span>La riconosco, misuro centratura, bordi e angoli e le do un voto. Gratis, sul telefono</span></span>
   </button>
   <div class="panel" style="display:flex;flex-direction:column;gap:14px">
-    <div class="field-wrap" style="max-width:280px;align-self:center;width:100%">
+    <div class="field-wrap" id="accuracy-wrap" style="max-width:280px;align-self:center;width:100%">
       <label for="accuracy">Precisione grading</label>
       <select id="accuracy" class="field">
         <option value="default">Standard · 1 analisi, più veloce</option>
@@ -212,6 +212,7 @@
 <div class="toast" id="toast" hidden></div>
 
 <script src="scanner.js"></script>
+<script src="local.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

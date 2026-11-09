@@ -520,3 +520,10 @@ main.wrap,.view,.panel{min-width:0}
 .graded-total b{color:var(--accent);font-size:18px;font-weight:800;font-variant-numeric:tabular-nums}
 .check-row{display:flex;gap:10px;align-items:flex-start;font-size:14px;cursor:pointer}
 .check-row input{width:20px;height:20px;accent-color:var(--accent);flex:none;margin-top:1px}
+
+/* local engine */
+.tcg-prices{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;font-size:13.5px;color:var(--muted);margin-top:4px}
+.tcg-prices b{color:var(--fg)}
+.pick-item{display:flex;gap:12px;align-items:center;width:100%;text-align:left;padding:10px;border-radius:16px;border:1px solid var(--line);background:var(--glass);color:var(--fg);font:inherit;cursor:pointer}
+.pick-item img,.pick-ph{width:46px;aspect-ratio:63/88;border-radius:5px;object-fit:cover;background:var(--panel-2);flex:none;display:block}
+.pick-item > span{display:flex;flex-direction:column;gap:2px;min-width:0}
